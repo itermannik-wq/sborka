@@ -21,6 +21,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -33,6 +38,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -69,8 +75,8 @@ private val AppBackgroundGradient = Brush.verticalGradient(
 private val CardBorderColor = Color(0xFFD4DFFF)
 private val InputContainerColor = Color(0xFFF7F9FF)
 private val AccentColor = Color(0xFF305DFF)
-private val AccentSoft = Color(0xFFE9EEFF)
 private val MutedTextColor = Color(0xFF6F7B95)
+private val SuccessColor = Color(0xFF16A34A)
 
 @Composable
 private fun ModernCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -124,7 +130,10 @@ fun AppRoot(vm: AppViewModel) {
                 state.message?.let {
                     ModernCard(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
                         Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(it, Modifier.weight(1f))
+                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = SuccessColor)
+                                Text(it)
+                            }
                             TextButton(onClick = vm::clearMessage) { Text("ОК") }
                         }
                     }
@@ -151,7 +160,7 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
         Column(Modifier.weight(1f)) {
             Text("Сборка поставок", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
             val sub = when (state.screen) {
-                AppScreen.SHIPMENTS -> "Поставки Ozon / Wildberries"
+                AppScreen.SHIPMENTS -> "Поставки • Ozon / Wildberries"
                 AppScreen.CITIES -> state.selectedShipmentTitle
                 AppScreen.BOXES -> "${state.selectedShipmentTitle} • ${state.selectedCityName}"
                 AppScreen.BOX -> "${state.selectedCityName} • ${state.selectedBoxNumber}"
@@ -160,7 +169,11 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
             }
             if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodyLarge, color = MutedTextColor)
         }
-        if (state.screen != AppScreen.SHIPMENTS) OutlinedButton(onClick = {
+        if (state.screen == AppScreen.SHIPMENTS) {
+            OutlinedButton(onClick = vm::goSettings, shape = RoundedCornerShape(14.dp)) {
+                Icon(Icons.Outlined.Settings, contentDescription = "Настройки", tint = AccentColor)
+            }
+        } else OutlinedButton(onClick = {
             when (state.screen) {
                 AppScreen.CITIES, AppScreen.SETTINGS -> vm.goShipments()
                 AppScreen.BOXES -> state.selectedShipmentId?.let(vm::openShipment)
@@ -183,7 +196,10 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
     Column(Modifier.fillMaxSize()) {
         ModernCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Новая поставка", fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = AccentColor)
+                    Text("Новая поставка", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                }
                 ModernTextField(title, { title = it }, Modifier.fillMaxWidth(), label = "Название")
                 ModernTextField(date, { date = it }, Modifier.fillMaxWidth(), label = "Дата: 2026-05-05")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -195,7 +211,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                         onClick = { vm.createShipment(title, date, marketplace); title = "" },
                         colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
                         shape = RoundedCornerShape(14.dp)
-                    ) { Text("Создать") }
+                    ) { Text("+ Создать") }
                     OutlinedButton(onClick = vm::goSettings, shape = RoundedCornerShape(14.dp)) { Text("Настройки") }
                 }
             }
@@ -212,7 +228,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(item.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                         Text("${item.date} • ${item.marketplace} • городов: ${item.cityCount} • коробок: ${item.boxCount} • единиц: ${item.itemCount}", color = MutedTextColor)
-                        if (item.isArchived) Text("Архив", color = MaterialTheme.colorScheme.secondary)
+                        Text(if (item.isArchived) "В архиве" else "Активна", color = if (item.isArchived) MutedTextColor else SuccessColor)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { vm.openShipment(item.id) }) { Text("Открыть") }
                             OutlinedButton(onClick = { vm.generateExcel(item.id) }) { Text("Excel") }
@@ -325,7 +341,11 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
                     ModernTextField(qty, { qty = it }, Modifier.width(82.dp), label = "Кол", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { vm.searchProducts(query) }) { Text("Найти") }
+                    Button(onClick = { vm.searchProducts(query) }) {
+                        Icon(Icons.Outlined.Search, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Найти")
+                    }
                     OutlinedButton(onClick = { barcode = query; article = ""; name = "" }) { Text("Новый товар") }
                 }
                 if (barcode.isNotBlank() && state.pendingBarcode == null) {

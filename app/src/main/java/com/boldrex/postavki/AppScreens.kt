@@ -266,6 +266,8 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
 private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
     var city by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
+        AppSectionTitle("Города и направления")
+        Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             ModernTextField(city, { city = it }, Modifier.weight(1f), label = "Город / направление")
             Button(onClick = { vm.addCity(city); city = "" }) { Text("Добавить") }

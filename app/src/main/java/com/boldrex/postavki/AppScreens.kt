@@ -2,7 +2,12 @@ package com.boldrex.postavki
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -29,34 +35,59 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.time.LocalDate
 
+
+private val AppBackgroundGradient = Brush.verticalGradient(
+    listOf(Color(0xFFF7F3FF), Color(0xFFEEF6FF), Color.White)
+)
+
+@Composable
+private fun ModernCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        content = { content() }
+    )
+}
+
 @Composable
 fun AppRoot(vm: AppViewModel) {
     val state by vm.state.collectAsState()
-    Column(Modifier.fillMaxSize().padding(12.dp)) {
-        Header(state, vm)
-        state.message?.let {
-            Card(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(it, Modifier.weight(1f))
-                    TextButton(onClick = vm::clearMessage) { Text("ОК") }
+    Box(Modifier.fillMaxSize().background(AppBackgroundGradient)) {
+        Column(Modifier.fillMaxSize().padding(12.dp)) {
+            Header(state, vm)
+            AnimatedVisibility(visible = state.message != null, enter = fadeIn(), exit = fadeOut()) {
+                state.message?.let {
+                    ModernCard(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                        Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(it, Modifier.weight(1f))
+                            TextButton(onClick = vm::clearMessage) { Text("ОК") }
+                        }
+                    }
                 }
             }
-        }
-        if (state.isBusy) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
-        when (state.screen) {
+            AnimatedVisibility(visible = state.isBusy, enter = fadeIn(), exit = fadeOut()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) { CircularProgressIndicator() }
+            }
+            when (state.screen) {
             AppScreen.SHIPMENTS -> ShipmentsScreen(state, vm)
             AppScreen.CITIES -> CitiesScreen(state, vm)
             AppScreen.BOXES -> BoxesScreen(state, vm)
             AppScreen.BOX -> BoxScreen(state, vm)
             AppScreen.SCANNER -> BarcodeScannerScreen(onCodeScanned = vm::handleScan, onClose = { vm.openBox(state.selectedBoxId ?: 0) })
             AppScreen.SETTINGS -> SettingsScreen(state, vm)
+            }
         }
     }
 }
@@ -97,7 +128,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
     var query by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize()) {
-        Card(Modifier.fillMaxWidth()) {
+        ModernCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Новая поставка", fontWeight = FontWeight.Bold)
                 OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Название") }, singleLine = true)
@@ -120,7 +151,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                 query.isBlank() || it.title.contains(query, true) || it.marketplace.contains(query, true)
             }
             items(filtered, key = { it.id }) { item ->
-                Card(Modifier.fillMaxWidth()) {
+                ModernCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(item.title, fontWeight = FontWeight.Bold)
                         Text("${item.date} • ${item.marketplace} • городов: ${item.cityCount} • коробок: ${item.boxCount} • единиц: ${item.itemCount}")
@@ -151,7 +182,7 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
         }
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.shipmentCities, key = { it.id }) { item ->
-                Card(Modifier.fillMaxWidth()) {
+                ModernCard(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(item.cityName, fontWeight = FontWeight.Bold)
@@ -178,7 +209,7 @@ private fun BoxesScreen(state: AppUiState, vm: AppViewModel) {
         Spacer(Modifier.height(8.dp))
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.boxes, key = { it.id }) { box ->
-                Card(Modifier.fillMaxWidth()) {
+                ModernCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(box.boxNumber, fontWeight = FontWeight.Bold)
                         Text("Позиций: ${box.positionCount}, единиц: ${box.itemCount}" + box.comment?.let { " • $it" }.orEmpty())
@@ -216,7 +247,7 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
         Spacer(Modifier.height(8.dp))
 
         if (state.pendingBarcode != null) {
-            Card(Modifier.fillMaxWidth()) {
+            ModernCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Неизвестный код: ${state.pendingBarcode}", fontWeight = FontWeight.Bold)
                     OutlinedTextField(article, { article = it }, Modifier.fillMaxWidth(), label = { Text("Артикул") }, singleLine = true)
@@ -229,7 +260,7 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
             Spacer(Modifier.height(8.dp))
         }
 
-        Card(Modifier.fillMaxWidth()) {
+        ModernCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Поиск и ручное добавление", fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -262,7 +293,7 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
         Text("Состав коробки", Modifier.padding(top = 12.dp, bottom = 4.dp), fontWeight = FontWeight.Bold)
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.boxItems, key = { it.id }) { item ->
-                Card(Modifier.fillMaxWidth()) {
+                ModernCard(Modifier.fillMaxWidth()) {
                     Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(item.article, fontWeight = FontWeight.Bold)
@@ -287,7 +318,7 @@ private fun SettingsScreen(state: AppUiState, vm: AppViewModel) {
         if (uri != null) vm.importProducts(uri)
     }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Card(Modifier.fillMaxWidth()) {
+        ModernCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Импорт справочника товаров", fontWeight = FontWeight.Bold)
                 Text("Поддерживаемые колонки: article/артикул, name/название, barcode/штрихкод. CSV, простые XLSX и XML.")
@@ -296,7 +327,7 @@ private fun SettingsScreen(state: AppUiState, vm: AppViewModel) {
                 }
             }
         }
-        Card(Modifier.fillMaxWidth()) {
+        ModernCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Файлы отчётов", fontWeight = FontWeight.Bold)
                 Text("Excel и CSV сохраняются в папку приложения Documents и могут быть отправлены через стандартное меню Android.")

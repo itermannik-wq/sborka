@@ -29,6 +29,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -50,14 +51,44 @@ private val AppBackgroundGradient = Brush.verticalGradient(
     listOf(Color(0xFFF7F3FF), Color(0xFFEEF6FF), Color.White)
 )
 
+private val CardBorderColor = Color(0xFFDCE6FF)
+private val InputContainerColor = Color(0xFFFAFBFF)
+
 @Composable
 private fun ModernCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, CardBorderColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         content = { content() }
+    )
+}
+
+@Composable
+private fun ModernTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String,
+    singleLine: Boolean = true,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        label = { Text(label) },
+        singleLine = singleLine,
+        keyboardOptions = keyboardOptions,
+        shape = RoundedCornerShape(14.dp),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = InputContainerColor,
+            unfocusedContainerColor = InputContainerColor,
+            focusedIndicatorColor = Color(0xFF6F86FF),
+            unfocusedIndicatorColor = Color(0xFFCCD6F6)
+        )
     )
 }
 
@@ -131,8 +162,8 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
         ModernCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Новая поставка", fontWeight = FontWeight.Bold)
-                OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Название") }, singleLine = true)
-                OutlinedTextField(date, { date = it }, Modifier.fillMaxWidth(), label = { Text("Дата: 2026-05-05") }, singleLine = true)
+                ModernTextField(title, { title = it }, Modifier.fillMaxWidth(), label = "Название")
+                ModernTextField(date, { date = it }, Modifier.fillMaxWidth(), label = "Дата: 2026-05-05")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (marketplace == "Ozon") Button(onClick = { marketplace = "Ozon" }) { Text("Ozon") } else OutlinedButton(onClick = { marketplace = "Ozon" }) { Text("Ozon") }
                     if (marketplace == "Wildberries") Button(onClick = { marketplace = "Wildberries" }) { Text("Wildberries") } else OutlinedButton(onClick = { marketplace = "Wildberries" }) { Text("Wildberries") }
@@ -144,7 +175,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
             }
         }
         Spacer(Modifier.height(10.dp))
-        OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), label = { Text("Поиск по названию / городу / маркетплейсу") }, singleLine = true)
+        ModernTextField(query, { query = it }, Modifier.fillMaxWidth(), label = "Поиск по названию / городу / маркетплейсу")
         Spacer(Modifier.height(8.dp))
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val filtered = state.shipments.filter {
@@ -173,7 +204,7 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
     var city by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(city, { city = it }, Modifier.weight(1f), label = { Text("Город / направление") }, singleLine = true)
+            ModernTextField(city, { city = it }, Modifier.weight(1f), label = "Город / направление")
             Button(onClick = { vm.addCity(city); city = "" }) { Text("Добавить") }
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -203,7 +234,7 @@ private fun BoxesScreen(state: AppUiState, vm: AppViewModel) {
     var newNumber by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(comment, { comment = it }, Modifier.weight(1f), label = { Text("Комментарий к коробке, необязательно") }, singleLine = true)
+            ModernTextField(comment, { comment = it }, Modifier.weight(1f), label = "Комментарий к коробке, необязательно")
             Button(onClick = { vm.createBox(comment); comment = "" }) { Text("+ Коробка") }
         }
         Spacer(Modifier.height(8.dp))
@@ -215,7 +246,7 @@ private fun BoxesScreen(state: AppUiState, vm: AppViewModel) {
                         Text("Позиций: ${box.positionCount}, единиц: ${box.itemCount}" + box.comment?.let { " • $it" }.orEmpty())
                         if (renameId == box.id) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(newNumber, { newNumber = it }, Modifier.weight(1f), label = { Text("Новый номер") }, singleLine = true)
+                                ModernTextField(newNumber, { newNumber = it }, Modifier.weight(1f), label = "Новый номер")
                                 Button(onClick = { vm.renameBox(box.id, newNumber); renameId = null }) { Text("OK") }
                             }
                         }
@@ -250,10 +281,10 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
             ModernCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Неизвестный код: ${state.pendingBarcode}", fontWeight = FontWeight.Bold)
-                    OutlinedTextField(article, { article = it }, Modifier.fillMaxWidth(), label = { Text("Артикул") }, singleLine = true)
-                    OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Название товара") }, singleLine = true)
-                    OutlinedTextField(barcode, { barcode = it }, Modifier.fillMaxWidth(), label = { Text("Штрихкод") }, singleLine = true)
-                    OutlinedTextField(qty, { qty = it }, Modifier.fillMaxWidth(), label = { Text("Количество") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    ModernTextField(article, { article = it }, Modifier.fillMaxWidth(), label = "Артикул")
+                    ModernTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Название товара")
+                    ModernTextField(barcode, { barcode = it }, Modifier.fillMaxWidth(), label = "Штрихкод")
+                    ModernTextField(qty, { qty = it }, Modifier.fillMaxWidth(), label = "Количество", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     Button(onClick = { vm.createProductAndAdd(article, name, barcode, qty.toIntOrNull() ?: 1, fromScan = true) }) { Text("Создать товар и добавить") }
                 }
             }
@@ -264,17 +295,17 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Поиск и ручное добавление", fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(query, { query = it }, Modifier.weight(1f), label = { Text("Артикул / название / код") }, singleLine = true)
-                    OutlinedTextField(qty, { qty = it }, Modifier.width(82.dp), label = { Text("Кол") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    ModernTextField(query, { query = it }, Modifier.weight(1f), label = "Артикул / название / код")
+                    ModernTextField(qty, { qty = it }, Modifier.width(82.dp), label = "Кол", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { vm.searchProducts(query) }) { Text("Найти") }
                     OutlinedButton(onClick = { barcode = query; article = ""; name = "" }) { Text("Новый товар") }
                 }
                 if (barcode.isNotBlank() && state.pendingBarcode == null) {
-                    OutlinedTextField(article, { article = it }, Modifier.fillMaxWidth(), label = { Text("Артикул нового товара") }, singleLine = true)
-                    OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Название нового товара") }, singleLine = true)
-                    OutlinedTextField(barcode, { barcode = it }, Modifier.fillMaxWidth(), label = { Text("Штрихкод / код") }, singleLine = true)
+                    ModernTextField(article, { article = it }, Modifier.fillMaxWidth(), label = "Артикул нового товара")
+                    ModernTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Название нового товара")
+                    ModernTextField(barcode, { barcode = it }, Modifier.fillMaxWidth(), label = "Штрихкод / код")
                     Button(onClick = { vm.createProductAndAdd(article, name, barcode, qty.toIntOrNull() ?: 1, fromScan = false); article = ""; name = ""; barcode = "" }) { Text("Создать и добавить") }
                 }
                 state.productSearch.forEach { p ->

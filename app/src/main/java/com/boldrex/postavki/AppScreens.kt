@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -34,6 +35,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -57,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -77,6 +80,7 @@ private val InputContainerColor = Color(0xFFF7F9FF)
 private val AccentColor = Color(0xFF305DFF)
 private val MutedTextColor = Color(0xFF6F7B95)
 private val SuccessColor = Color(0xFF16A34A)
+private val DangerColor = Color(0xFFEF4444)
 
 @Composable
 private fun ModernCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -88,6 +92,11 @@ private fun ModernCard(modifier: Modifier = Modifier, content: @Composable () ->
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         content = { content() }
     )
+}
+
+@Composable
+private fun AppSectionTitle(text: String) {
+    Text(text = text, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color(0xFF0B1226))
 }
 
 @Composable
@@ -170,7 +179,7 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
             if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodyLarge, color = MutedTextColor)
         }
         if (state.screen == AppScreen.SHIPMENTS) {
-            OutlinedButton(onClick = vm::goSettings, shape = RoundedCornerShape(14.dp)) {
+            OutlinedIconButton(onClick = vm::goSettings) {
                 Icon(Icons.Outlined.Settings, contentDescription = "Настройки", tint = AccentColor)
             }
         } else OutlinedButton(onClick = {
@@ -201,7 +210,11 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                     Text("Новая поставка", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                 }
                 ModernTextField(title, { title = it }, Modifier.fillMaxWidth(), label = "Название")
-                ModernTextField(date, { date = it }, Modifier.fillMaxWidth(), label = "Дата: 2026-05-05")
+                ModernTextField(date, { date = it }, Modifier.fillMaxWidth(), label = "Дата: 05.05.2026")
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Outlined.CalendarMonth, null, tint = MutedTextColor)
+                    Text("Формат: ДД.ММ.ГГГГ", color = MutedTextColor)
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (marketplace == "Ozon") Button(onClick = { marketplace = "Ozon" }, shape = RoundedCornerShape(14.dp)) { Text("Ozon") } else OutlinedButton(onClick = { marketplace = "Ozon" }, shape = RoundedCornerShape(14.dp)) { Text("Ozon") }
                     if (marketplace == "Wildberries") Button(onClick = { marketplace = "Wildberries" }, shape = RoundedCornerShape(14.dp)) { Text("Wildberries") } else OutlinedButton(onClick = { marketplace = "Wildberries" }, shape = RoundedCornerShape(14.dp)) { Text("Wildberries") }
@@ -219,10 +232,18 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
         Spacer(Modifier.height(10.dp))
         ModernTextField(query, { query = it }, Modifier.fillMaxWidth(), label = "Поиск по названию / городу / маркетплейсу")
         Spacer(Modifier.height(8.dp))
-        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            val filtered = state.shipments.filter {
-                query.isBlank() || it.title.contains(query, true) || it.marketplace.contains(query, true)
+        val filtered = state.shipments.filter {
+            query.isBlank() || it.title.contains(query, true) || it.marketplace.contains(query, true)
+        }
+        if (filtered.isEmpty()) {
+            ModernCard(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Поставок пока нет", fontWeight = FontWeight.Bold)
+                    Text("Создайте первую поставку для Ozon или Wildberries", color = MutedTextColor, textAlign = TextAlign.Center)
+                }
             }
+        }
+        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(filtered, key = { it.id }) { item ->
                 ModernCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -245,6 +266,8 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
 private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
     var city by remember { mutableStateOf("") }
     Column(Modifier.fillMaxSize()) {
+        AppSectionTitle("Города и направления")
+        Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             ModernTextField(city, { city = it }, Modifier.weight(1f), label = "Город / направление")
             Button(onClick = { vm.addCity(city); city = "" }) { Text("Добавить") }
@@ -252,6 +275,14 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { vm.generateExcel() }) { Text("Сформировать Excel") }
             OutlinedButton(onClick = { vm.exportCsv() }) { Text("CSV") }
+        }
+        if (state.shipmentCities.isEmpty()) {
+            ModernCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Города пока не добавлены", fontWeight = FontWeight.Bold)
+                    Text("Добавьте город или направление для сборки коробок", color = MutedTextColor, textAlign = TextAlign.Center)
+                }
+            }
         }
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.shipmentCities, key = { it.id }) { item ->
@@ -284,7 +315,7 @@ private fun BoxesScreen(state: AppUiState, vm: AppViewModel) {
             items(state.boxes, key = { it.id }) { box ->
                 ModernCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(box.boxNumber, fontWeight = FontWeight.Bold)
+                        Text(box.boxNumber, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp)
                         Text("Позиций: ${box.positionCount}, единиц: ${box.itemCount}" + box.comment?.let { " • $it" }.orEmpty())
                         if (renameId == box.id) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -295,7 +326,7 @@ private fun BoxesScreen(state: AppUiState, vm: AppViewModel) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { vm.openBox(box.id) }) { Text("Открыть") }
                             OutlinedButton(onClick = { renameId = box.id; newNumber = box.boxNumber }) { Text("Номер") }
-                            OutlinedButton(onClick = { vm.deleteBox(box.id) }) { Text("Удалить") }
+                            OutlinedButton(onClick = { vm.deleteBox(box.id) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerColor)) { Text("Удалить") }
                         }
                     }
                 }
@@ -313,6 +344,15 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
     var barcode by remember(state.pendingBarcode) { mutableStateOf(state.pendingBarcode.orEmpty()) }
 
     Column(Modifier.fillMaxSize()) {
+        ModernCard(Modifier.fillMaxWidth()) {
+            Text(
+                "${state.selectedCityName} • ${state.selectedBoxNumber}",
+                Modifier.padding(14.dp),
+                color = Color(0xFF0B1226),
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = vm::openScanner, modifier = Modifier.weight(1f)) { Text("Сканировать") }
             OutlinedButton(onClick = { vm.generateExcel() }, modifier = Modifier.weight(1f)) { Text("Excel") }
@@ -368,6 +408,14 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
         }
 
         Text("Товары в коробке", Modifier.padding(top = 14.dp, bottom = 6.dp), fontWeight = FontWeight.Bold)
+        if (state.boxItems.isEmpty()) {
+            ModernCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("В коробке пока нет товаров", fontWeight = FontWeight.Bold)
+                    Text("Отсканируйте товар или добавьте его вручную", color = MutedTextColor, textAlign = TextAlign.Center)
+                }
+            }
+        }
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.boxItems, key = { it.id }) { item ->
                 BoxItemCard(item = item, onChangeQuantity = vm::changeItemQuantity)

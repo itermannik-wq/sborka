@@ -532,13 +532,3 @@ private fun SettingsScreen(state: AppUiState, vm: AppViewModel) {
         }
     }
 }
-        AppSectionTitle("Города и направления")
-        Spacer(Modifier.height(8.dp))
-        ModernCard(Modifier.fillMaxWidth()) {
-            Text(
-                "${state.selectedCityName} • ${state.selectedShipmentTitle}",
-                Modifier.padding(14.dp),
-                color = MutedTextColor
-            )
-        }
-        Spacer(Modifier.height(8.dp))

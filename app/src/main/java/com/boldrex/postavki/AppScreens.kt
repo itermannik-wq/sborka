@@ -16,11 +16,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,6 +49,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
 import kotlin.math.cos
@@ -374,10 +377,17 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
                     Text(item.barcode.orEmpty(), style = MaterialTheme.typography.bodySmall)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(onClick = { onChangeQuantity(item.id, item.quantity - 1) }, modifier = Modifier.width(50.dp)) { Text("−") }
+                    OutlinedButton(onClick = { onChangeQuantity(item.id, item.quantity - 1) }, modifier = Modifier.width(44.dp)) { Text("−", textAlign = TextAlign.Center) }
                     Text(item.quantity.toString(), Modifier.padding(horizontal = 4.dp), fontWeight = FontWeight.Bold)
-                    OutlinedButton(onClick = { onChangeQuantity(item.id, item.quantity + 1) }, modifier = Modifier.width(50.dp)) { Text("+") }
-                    OutlinedButton(onClick = { removing = true }, enabled = !removing, modifier = Modifier.width(58.dp)) { Text("🗑") }
+                    OutlinedButton(onClick = { onChangeQuantity(item.id, item.quantity + 1) }, modifier = Modifier.width(44.dp)) { Text("+", textAlign = TextAlign.Center) }
+                    Button(
+                        onClick = { removing = true },
+                        enabled = !removing,
+                        modifier = Modifier.size(width = 44.dp, height = 40.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD72D45), contentColor = Color.White)
+                    ) {
+                        Text("🗑", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                    }
                 }
             }
 
@@ -390,20 +400,31 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
 
 @Composable
 private fun ParticleDissolveOverlay(progress: Float) {
-    val particles = 34
+    val particlesX = 17
+    val particlesY = 8
     Canvas(Modifier.fillMaxSize().alpha((1f - progress).coerceIn(0f, 1f))) {
-        val center = Offset(size.width / 2, size.height / 2)
-        repeat(particles) { index ->
-            val angle = ((index * 137.5) % 360) * (PI / 180f).toFloat()
-            val distance = (20f + (index % 8) * 12f) * progress
-            val drift = Offset(
-                x = (cos(angle) * distance).toFloat(),
-                y = (sin(angle) * distance).toFloat() - (50f * progress)
-            )
-            drawCircle(
-                color = AccentColor.copy(alpha = (0.55f - progress * 0.45f).coerceAtLeast(0f)),
-                radius = (5f - progress * 3f).coerceAtLeast(1.1f),
-                center = center + drift,
+        val particleW = size.width / particlesX
+        val particleH = size.height / particlesY
+        repeat(particlesX * particlesY) { index ->
+            val col = index % particlesX
+            val row = index / particlesX
+            val seed = index * 73
+            val angle = ((seed % 120) - 60f) * (PI / 180f).toFloat()
+            val speed = 45f + (seed % 70)
+            val swirl = ((seed % 9) - 4f) * 1.6f
+            val startX = col * particleW + particleW * 0.5f
+            val startY = row * particleH + particleH * 0.5f
+            val dx = cos(angle) * speed * progress + swirl * progress * 18f
+            val dy = -sin(angle) * speed * progress - 90f * progress
+            val shrink = (1f - progress * 0.75f).coerceAtLeast(0.1f)
+
+            drawRect(
+                color = Color(0xFFE7EDFF).copy(alpha = (0.95f - progress).coerceAtLeast(0f)),
+                topLeft = Offset(
+                    x = startX + dx.toFloat() - (particleW * shrink / 2f),
+                    y = startY + dy.toFloat() - (particleH * shrink / 2f)
+                ),
+                size = androidx.compose.ui.geometry.Size(particleW * shrink, particleH * shrink),
                 style = Fill
             )
         }

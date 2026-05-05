@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,11 +41,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import java.time.LocalDate
 
 
@@ -326,21 +338,74 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
         Text("Товары в коробке", Modifier.padding(top = 14.dp, bottom = 6.dp), fontWeight = FontWeight.Bold)
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.boxItems, key = { it.id }) { item ->
-                ModernCard(Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(item.article, fontWeight = FontWeight.Bold)
-                            Text(item.name)
-                            Text(item.barcode.orEmpty(), style = MaterialTheme.typography.bodySmall)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedButton(onClick = { vm.changeItemQuantity(item.id, item.quantity - 1) }) { Text("−") }
-                            Text(item.quantity.toString(), Modifier.padding(horizontal = 10.dp), fontWeight = FontWeight.Bold)
-                            OutlinedButton(onClick = { vm.changeItemQuantity(item.id, item.quantity + 1) }) { Text("+") }
-                        }
-                    }
+                BoxItemCard(item = item, onChangeQuantity = vm::changeItemQuantity)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit) {
+    var removing by remember(item.id) { mutableStateOf(false) }
+    val progress = remember(item.id) { Animatable(0f) }
+
+    LaunchedEffect(removing) {
+        if (removing) {
+            progress.snapTo(0f)
+            progress.animateTo(1f, animationSpec = tween(durationMillis = 650, easing = LinearEasing))
+            onChangeQuantity(item.id, 0)
+        }
+    }
+
+    ModernCard(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                alpha = 1f - (progress.value * 0.9f)
+                scaleX = 1f - (progress.value * 0.1f)
+                scaleY = 1f - (progress.value * 0.1f)
+            }
+    ) {
+        Box(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(item.article, fontWeight = FontWeight.Bold)
+                    Text(item.name)
+                    Text(item.barcode.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(onClick = { onChangeQuantity(item.id, item.quantity - 1) }, modifier = Modifier.width(50.dp)) { Text("−") }
+                    Text(item.quantity.toString(), Modifier.padding(horizontal = 4.dp), fontWeight = FontWeight.Bold)
+                    OutlinedButton(onClick = { onChangeQuantity(item.id, item.quantity + 1) }, modifier = Modifier.width(50.dp)) { Text("+") }
+                    OutlinedButton(onClick = { removing = true }, enabled = !removing, modifier = Modifier.width(58.dp)) { Text("🗑") }
                 }
             }
+
+            if (removing) {
+                ParticleDissolveOverlay(progress = progress.value)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ParticleDissolveOverlay(progress: Float) {
+    val particles = 34
+    Canvas(Modifier.fillMaxSize().alpha((1f - progress).coerceIn(0f, 1f))) {
+        val center = Offset(size.width / 2, size.height / 2)
+        repeat(particles) { index ->
+            val angle = ((index * 137.5) % 360) * (PI / 180f).toFloat()
+            val distance = (20f + (index % 8) * 12f) * progress
+            val drift = Offset(
+                x = (cos(angle) * distance).toFloat(),
+                y = (sin(angle) * distance).toFloat() - (50f * progress)
+            )
+            drawCircle(
+                color = AccentColor.copy(alpha = (0.55f - progress * 0.45f).coerceAtLeast(0f)),
+                radius = (5f - progress * 3f).coerceAtLeast(1.1f),
+                center = center + drift,
+                style = Fill
+            )
         }
     }
 }

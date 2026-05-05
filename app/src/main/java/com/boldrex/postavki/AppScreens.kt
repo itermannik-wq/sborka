@@ -149,7 +149,6 @@ private fun ModernTextField(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier,
         label = { Text(label) },
         placeholder = { Text(label, color = MutedTextColor) },
         singleLine = singleLine,

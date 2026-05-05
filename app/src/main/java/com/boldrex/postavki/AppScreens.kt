@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Button
@@ -81,22 +84,57 @@ private val AccentColor = Color(0xFF305DFF)
 private val MutedTextColor = Color(0xFF6F7B95)
 private val SuccessColor = Color(0xFF16A34A)
 private val DangerColor = Color(0xFFEF4444)
+private val MainTextColor = Color(0xFF0B1226)
+
+@Composable
+private fun AppPrimaryButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(56.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+    ) { Text(text, fontWeight = FontWeight.SemiBold) }
+}
+
+@Composable
+private fun AppSecondaryButton(text: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.height(56.dp),
+        shape = RoundedCornerShape(18.dp),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = MainTextColor)
+    ) { Text(text, fontWeight = FontWeight.Medium) }
+}
+
+@Composable
+private fun StatusBadge(text: String, isSuccess: Boolean = false) {
+    Box(
+        Modifier
+            .background(
+                color = if (isSuccess) Color(0xFFE9F8EF) else Color(0xFFEEF4FF),
+                shape = RoundedCornerShape(999.dp)
+            )
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Text(text, color = if (isSuccess) SuccessColor else AccentColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
 
 @Composable
 private fun ModernCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, CardBorderColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
         content = { content() }
     )
 }
 
 @Composable
 private fun AppSectionTitle(text: String) {
-    Text(text = text, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color(0xFF0B1226))
+    Text(text = text, fontWeight = FontWeight.Bold, fontSize = 24.sp, color = Color(0xFF0B1226))
 }
 
 @Composable
@@ -111,10 +149,11 @@ private fun ModernTextField(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier,
         label = { Text(label) },
+        placeholder = { Text(label, color = MutedTextColor) },
         singleLine = singleLine,
         keyboardOptions = keyboardOptions,
+        modifier = modifier.heightIn(min = 56.dp),
         shape = RoundedCornerShape(14.dp),
         colors = TextFieldDefaults.colors(
             focusedTextColor = Color(0xFF0B1533),
@@ -133,7 +172,7 @@ private fun ModernTextField(
 fun AppRoot(vm: AppViewModel) {
     val state by vm.state.collectAsState()
     Box(Modifier.fillMaxSize().background(AppBackgroundGradient)) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Header(state, vm)
             AnimatedVisibility(visible = state.message != null, enter = fadeIn(), exit = fadeOut()) {
                 state.message?.let {
@@ -143,7 +182,7 @@ fun AppRoot(vm: AppViewModel) {
                                 Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = SuccessColor)
                                 Text(it)
                             }
-                            TextButton(onClick = vm::clearMessage) { Text("ОК") }
+                            TextButton(onClick = vm::clearMessage) { Text("ОК", color = SuccessColor) }
                         }
                     }
                 }
@@ -176,7 +215,7 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
                 AppScreen.SCANNER -> "Сканер"
                 AppScreen.SETTINGS -> "Настройки и импорт"
             }
-            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodyLarge, color = MutedTextColor)
+            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodyLarge, color = MutedTextColor, maxLines = 2)
         }
         if (state.screen == AppScreen.SHIPMENTS) {
             OutlinedIconButton(onClick = vm::goSettings) {
@@ -190,7 +229,7 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
                 AppScreen.SCANNER -> state.selectedBoxId?.let(vm::openBox)
                 else -> vm.goShipments()
             }
-        }, shape = RoundedCornerShape(14.dp)) { Text("Назад") }
+        }, shape = RoundedCornerShape(16.dp), modifier = Modifier.height(48.dp)) { Text("Назад") }
     }
     HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Color(0xFFC9D6FF))
 }
@@ -204,28 +243,24 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
 
     Column(Modifier.fillMaxSize()) {
         ModernCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = AccentColor)
-                    Text("Новая поставка", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                    Text("Новая поставка", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.headlineSmall)
                 }
-                ModernTextField(title, { title = it }, Modifier.fillMaxWidth(), label = "Название")
-                ModernTextField(date, { date = it }, Modifier.fillMaxWidth(), label = "Дата: 05.05.2026")
+                ModernTextField(title, { title = it }, Modifier.fillMaxWidth(), label = "Введите название поставки")
+                ModernTextField(date, { date = it }, Modifier.fillMaxWidth(), label = "05.05.2026")
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Outlined.CalendarMonth, null, tint = MutedTextColor)
                     Text("Формат: ДД.ММ.ГГГГ", color = MutedTextColor)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (marketplace == "Ozon") Button(onClick = { marketplace = "Ozon" }, shape = RoundedCornerShape(14.dp)) { Text("Ozon") } else OutlinedButton(onClick = { marketplace = "Ozon" }, shape = RoundedCornerShape(14.dp)) { Text("Ozon") }
-                    if (marketplace == "Wildberries") Button(onClick = { marketplace = "Wildberries" }, shape = RoundedCornerShape(14.dp)) { Text("Wildberries") } else OutlinedButton(onClick = { marketplace = "Wildberries" }, shape = RoundedCornerShape(14.dp)) { Text("Wildberries") }
+                    if (marketplace == "Ozon") AppPrimaryButton("Ozon", Modifier.weight(1f)) { marketplace = "Ozon" } else AppSecondaryButton("Ozon", Modifier.weight(1f)) { marketplace = "Ozon" }
+                    if (marketplace == "Wildberries") AppPrimaryButton("Wildberries", Modifier.weight(1f)) { marketplace = "Wildberries" } else AppSecondaryButton("Wildberries", Modifier.weight(1f)) { marketplace = "Wildberries" }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { vm.createShipment(title, date, marketplace); title = "" },
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
-                        shape = RoundedCornerShape(14.dp)
-                    ) { Text("+ Создать") }
-                    OutlinedButton(onClick = vm::goSettings, shape = RoundedCornerShape(14.dp)) { Text("Настройки") }
+                    AppPrimaryButton("Создать", Modifier.weight(1f)) { vm.createShipment(title, date, marketplace); title = "" }
+                    AppSecondaryButton("Настройки", Modifier.weight(1f), vm::goSettings)
                 }
             }
         }
@@ -246,14 +281,14 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(filtered, key = { it.id }) { item ->
                 ModernCard(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(item.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(item.title, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.headlineSmall, color = MainTextColor)
                         Text("${item.date} • ${item.marketplace} • городов: ${item.cityCount} • коробок: ${item.boxCount} • единиц: ${item.itemCount}", color = MutedTextColor)
-                        Text(if (item.isArchived) "В архиве" else "Активна", color = if (item.isArchived) MutedTextColor else SuccessColor)
+                        StatusBadge(if (item.isArchived) "В архиве" else "Активна", isSuccess = !item.isArchived)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { vm.openShipment(item.id) }) { Text("Открыть") }
-                            OutlinedButton(onClick = { vm.generateExcel(item.id) }) { Text("Excel") }
-                            OutlinedButton(onClick = { vm.archiveShipment(item.id, !item.isArchived) }) { Text(if (item.isArchived) "Вернуть" else "Архив") }
+                            AppPrimaryButton("Открыть", Modifier.weight(1f)) { vm.openShipment(item.id) }
+                            AppSecondaryButton("Excel", Modifier.weight(1f)) { vm.generateExcel(item.id) }
+                            AppSecondaryButton(if (item.isArchived) "Вернуть" else "Архив", Modifier.weight(1f)) { vm.archiveShipment(item.id, !item.isArchived) }
                         }
                     }
                 }
@@ -270,11 +305,11 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             ModernTextField(city, { city = it }, Modifier.weight(1f), label = "Город / направление")
-            Button(onClick = { vm.addCity(city); city = "" }) { Text("Добавить") }
+            AppPrimaryButton("Добавить") { vm.addCity(city); city = "" }
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { vm.generateExcel() }) { Text("Сформировать Excel") }
-            OutlinedButton(onClick = { vm.exportCsv() }) { Text("CSV") }
+            AppPrimaryButton("Сформировать Excel", Modifier.weight(1f)) { vm.generateExcel() }
+            AppSecondaryButton("CSV", Modifier.weight(1f)) { vm.exportCsv() }
         }
         if (state.shipmentCities.isEmpty()) {
             ModernCard(Modifier.fillMaxWidth()) {
@@ -292,7 +327,12 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
                             Text(item.cityName, fontWeight = FontWeight.Bold)
                             Text("Коробок: ${item.boxCount}, единиц: ${item.itemCount}")
                         }
-                        Button(onClick = { vm.openCity(item.id) }) { Text("Коробки") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            AppPrimaryButton("Коробки", Modifier.width(122.dp)) { vm.openCity(item.id) }
+                            OutlinedIconButton(onClick = {}, modifier = Modifier.border(1.dp, CardBorderColor, RoundedCornerShape(16.dp))) {
+                                Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = MutedTextColor)
+                            }
+                        }
                     }
                 }
             }
@@ -308,7 +348,7 @@ private fun BoxesScreen(state: AppUiState, vm: AppViewModel) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             ModernTextField(comment, { comment = it }, Modifier.weight(1f), label = "Комментарий к коробке, необязательно")
-            Button(onClick = { vm.createBox(comment); comment = "" }) { Text("+ Коробка") }
+            Button(onClick = { vm.createBox(comment); comment = "" }, modifier = Modifier.height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("+ Коробка") }
         }
         Spacer(Modifier.height(8.dp))
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -324,9 +364,9 @@ private fun BoxesScreen(state: AppUiState, vm: AppViewModel) {
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { vm.openBox(box.id) }) { Text("Открыть") }
-                            OutlinedButton(onClick = { renameId = box.id; newNumber = box.boxNumber }) { Text("Номер") }
-                            OutlinedButton(onClick = { vm.deleteBox(box.id) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerColor)) { Text("Удалить") }
+                            Button(onClick = { vm.openBox(box.id) }, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(18.dp)) { Text("Открыть") }
+                            OutlinedButton(onClick = { renameId = box.id; newNumber = box.boxNumber }, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(18.dp)) { Text("Номер") }
+                            OutlinedButton(onClick = { vm.deleteBox(box.id) }, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerColor)) { Text("Удалить") }
                         }
                     }
                 }
@@ -354,8 +394,8 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
         }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = vm::openScanner, modifier = Modifier.weight(1f)) { Text("Сканировать") }
-            OutlinedButton(onClick = { vm.generateExcel() }, modifier = Modifier.weight(1f)) { Text("Excel") }
+            Button(onClick = vm::openScanner, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("Сканировать") }
+            OutlinedButton(onClick = { vm.generateExcel() }, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("Excel") }
         }
         Spacer(Modifier.height(8.dp))
 

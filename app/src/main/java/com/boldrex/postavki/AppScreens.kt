@@ -70,6 +70,7 @@ private val CardBorderColor = Color(0xFFD4DFFF)
 private val InputContainerColor = Color(0xFFF7F9FF)
 private val AccentColor = Color(0xFF305DFF)
 private val AccentSoft = Color(0xFFE9EEFF)
+private val MutedTextColor = Color(0xFF6F7B95)
 
 @Composable
 private fun ModernCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -101,6 +102,10 @@ private fun ModernTextField(
         keyboardOptions = keyboardOptions,
         shape = RoundedCornerShape(14.dp),
         colors = TextFieldDefaults.colors(
+            focusedTextColor = Color(0xFF0B1533),
+            unfocusedTextColor = Color(0xFF0B1533),
+            focusedLabelColor = AccentColor,
+            unfocusedLabelColor = MutedTextColor,
             focusedContainerColor = InputContainerColor,
             unfocusedContainerColor = InputContainerColor,
             focusedIndicatorColor = AccentColor,
@@ -153,9 +158,9 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
                 AppScreen.SCANNER -> "Сканер"
                 AppScreen.SETTINGS -> "Настройки и импорт"
             }
-            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodySmall)
+            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodyLarge, color = MutedTextColor)
         }
-        if (state.screen != AppScreen.SHIPMENTS) TextButton(onClick = {
+        if (state.screen != AppScreen.SHIPMENTS) OutlinedButton(onClick = {
             when (state.screen) {
                 AppScreen.CITIES, AppScreen.SETTINGS -> vm.goShipments()
                 AppScreen.BOXES -> state.selectedShipmentId?.let(vm::openShipment)
@@ -163,7 +168,7 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
                 AppScreen.SCANNER -> state.selectedBoxId?.let(vm::openBox)
                 else -> vm.goShipments()
             }
-        }) { Text("Назад") }
+        }, shape = RoundedCornerShape(14.dp)) { Text("Назад") }
     }
     HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Color(0xFFC9D6FF))
 }
@@ -182,12 +187,16 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                 ModernTextField(title, { title = it }, Modifier.fillMaxWidth(), label = "Название")
                 ModernTextField(date, { date = it }, Modifier.fillMaxWidth(), label = "Дата: 2026-05-05")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (marketplace == "Ozon") Button(onClick = { marketplace = "Ozon" }) { Text("Ozon") } else OutlinedButton(onClick = { marketplace = "Ozon" }) { Text("Ozon") }
-                    if (marketplace == "Wildberries") Button(onClick = { marketplace = "Wildberries" }) { Text("Wildberries") } else OutlinedButton(onClick = { marketplace = "Wildberries" }) { Text("Wildberries") }
+                    if (marketplace == "Ozon") Button(onClick = { marketplace = "Ozon" }, shape = RoundedCornerShape(14.dp)) { Text("Ozon") } else OutlinedButton(onClick = { marketplace = "Ozon" }, shape = RoundedCornerShape(14.dp)) { Text("Ozon") }
+                    if (marketplace == "Wildberries") Button(onClick = { marketplace = "Wildberries" }, shape = RoundedCornerShape(14.dp)) { Text("Wildberries") } else OutlinedButton(onClick = { marketplace = "Wildberries" }, shape = RoundedCornerShape(14.dp)) { Text("Wildberries") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { vm.createShipment(title, date, marketplace); title = "" }) { Text("Создать") }
-                    OutlinedButton(onClick = vm::goSettings) { Text("Настройки") }
+                    Button(
+                        onClick = { vm.createShipment(title, date, marketplace); title = "" },
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
+                        shape = RoundedCornerShape(14.dp)
+                    ) { Text("Создать") }
+                    OutlinedButton(onClick = vm::goSettings, shape = RoundedCornerShape(14.dp)) { Text("Настройки") }
                 }
             }
         }
@@ -201,8 +210,8 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
             items(filtered, key = { it.id }) { item ->
                 ModernCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(item.title, fontWeight = FontWeight.Bold)
-                        Text("${item.date} • ${item.marketplace} • городов: ${item.cityCount} • коробок: ${item.boxCount} • единиц: ${item.itemCount}")
+                        Text(item.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                        Text("${item.date} • ${item.marketplace} • городов: ${item.cityCount} • коробок: ${item.boxCount} • единиц: ${item.itemCount}", color = MutedTextColor)
                         if (item.isArchived) Text("Архив", color = MaterialTheme.colorScheme.secondary)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(onClick = { vm.openShipment(item.id) }) { Text("Открыть") }

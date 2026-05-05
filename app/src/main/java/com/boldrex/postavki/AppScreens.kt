@@ -48,11 +48,13 @@ import java.time.LocalDate
 
 
 private val AppBackgroundGradient = Brush.verticalGradient(
-    listOf(Color(0xFFF7F3FF), Color(0xFFEEF6FF), Color.White)
+    listOf(Color(0xFFF4F7FF), Color(0xFFEAF1FF), Color(0xFFE6EEFF))
 )
 
-private val CardBorderColor = Color(0xFFDCE6FF)
-private val InputContainerColor = Color(0xFFFAFBFF)
+private val CardBorderColor = Color(0xFFD4DFFF)
+private val InputContainerColor = Color(0xFFF7F9FF)
+private val AccentColor = Color(0xFF305DFF)
+private val AccentSoft = Color(0xFFE9EEFF)
 
 @Composable
 private fun ModernCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
@@ -86,8 +88,8 @@ private fun ModernTextField(
         colors = TextFieldDefaults.colors(
             focusedContainerColor = InputContainerColor,
             unfocusedContainerColor = InputContainerColor,
-            focusedIndicatorColor = Color(0xFF6F86FF),
-            unfocusedIndicatorColor = Color(0xFFCCD6F6)
+            focusedIndicatorColor = AccentColor,
+            unfocusedIndicatorColor = Color(0xFFC7D3FA)
         )
     )
 }
@@ -96,7 +98,7 @@ private fun ModernTextField(
 fun AppRoot(vm: AppViewModel) {
     val state by vm.state.collectAsState()
     Box(Modifier.fillMaxSize().background(AppBackgroundGradient)) {
-        Column(Modifier.fillMaxSize().padding(12.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp)) {
             Header(state, vm)
             AnimatedVisibility(visible = state.message != null, enter = fadeIn(), exit = fadeOut()) {
                 state.message?.let {
@@ -127,7 +129,7 @@ fun AppRoot(vm: AppViewModel) {
 private fun Header(state: AppUiState, vm: AppViewModel) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text("Сборка поставок", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Сборка поставок", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
             val sub = when (state.screen) {
                 AppScreen.SHIPMENTS -> "Поставки Ozon / Wildberries"
                 AppScreen.CITIES -> state.selectedShipmentTitle
@@ -148,7 +150,7 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
             }
         }) { Text("Назад") }
     }
-    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+    HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Color(0xFFC9D6FF))
 }
 
 @Composable
@@ -160,7 +162,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
 
     Column(Modifier.fillMaxSize()) {
         ModernCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Новая поставка", fontWeight = FontWeight.Bold)
                 ModernTextField(title, { title = it }, Modifier.fillMaxWidth(), label = "Название")
                 ModernTextField(date, { date = it }, Modifier.fillMaxWidth(), label = "Дата: 2026-05-05")
@@ -214,7 +216,7 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.shipmentCities, key = { it.id }) { item ->
                 ModernCard(Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(item.cityName, fontWeight = FontWeight.Bold)
                             Text("Коробок: ${item.boxCount}, единиц: ${item.itemCount}")
@@ -279,7 +281,7 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
 
         if (state.pendingBarcode != null) {
             ModernCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Неизвестный код: ${state.pendingBarcode}", fontWeight = FontWeight.Bold)
                     ModernTextField(article, { article = it }, Modifier.fillMaxWidth(), label = "Артикул")
                     ModernTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Название товара")
@@ -292,8 +294,8 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
         }
 
         ModernCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Поиск и ручное добавление", fontWeight = FontWeight.Bold)
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Быстрое добавление товаров", fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     ModernTextField(query, { query = it }, Modifier.weight(1f), label = "Артикул / название / код")
                     ModernTextField(qty, { qty = it }, Modifier.width(82.dp), label = "Кол", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
@@ -321,11 +323,11 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
             }
         }
 
-        Text("Состав коробки", Modifier.padding(top = 12.dp, bottom = 4.dp), fontWeight = FontWeight.Bold)
+        Text("Товары в коробке", Modifier.padding(top = 14.dp, bottom = 6.dp), fontWeight = FontWeight.Bold)
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(state.boxItems, key = { it.id }) { item ->
                 ModernCard(Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(item.article, fontWeight = FontWeight.Bold)
                             Text(item.name)
@@ -350,7 +352,7 @@ private fun SettingsScreen(state: AppUiState, vm: AppViewModel) {
     }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         ModernCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Импорт справочника товаров", fontWeight = FontWeight.Bold)
                 Text("Поддерживаемые колонки: article/артикул, name/название, barcode/штрихкод. CSV, простые XLSX и XML.")
                 Button(onClick = { picker.launch(arrayOf("text/*", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/xml", "text/xml", "text/csv")) }) {
@@ -359,7 +361,7 @@ private fun SettingsScreen(state: AppUiState, vm: AppViewModel) {
             }
         }
         ModernCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Файлы отчётов", fontWeight = FontWeight.Bold)
                 Text("Excel и CSV сохраняются в папку приложения Documents и могут быть отправлены через стандартное меню Android.")
                 state.lastFile?.let { Text("Последний файл: ${it.name}") }

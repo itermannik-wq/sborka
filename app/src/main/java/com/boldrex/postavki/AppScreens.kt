@@ -86,17 +86,17 @@ private val DangerColor = Color(0xFFEF4444)
 private fun ModernCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, CardBorderColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
         content = { content() }
     )
 }
 
 @Composable
 private fun AppSectionTitle(text: String) {
-    Text(text = text, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Color(0xFF0B1226))
+    Text(text = text, fontWeight = FontWeight.Bold, fontSize = 24.sp, color = Color(0xFF0B1226))
 }
 
 @Composable
@@ -133,7 +133,7 @@ private fun ModernTextField(
 fun AppRoot(vm: AppViewModel) {
     val state by vm.state.collectAsState()
     Box(Modifier.fillMaxSize().background(AppBackgroundGradient)) {
-        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Header(state, vm)
             AnimatedVisibility(visible = state.message != null, enter = fadeIn(), exit = fadeOut()) {
                 state.message?.let {
@@ -143,7 +143,7 @@ fun AppRoot(vm: AppViewModel) {
                                 Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = SuccessColor)
                                 Text(it)
                             }
-                            TextButton(onClick = vm::clearMessage) { Text("ОК") }
+                            TextButton(onClick = vm::clearMessage) { Text("ОК", color = SuccessColor) }
                         }
                     }
                 }
@@ -176,7 +176,7 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
                 AppScreen.SCANNER -> "Сканер"
                 AppScreen.SETTINGS -> "Настройки и импорт"
             }
-            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodyLarge, color = MutedTextColor)
+            if (sub.isNotBlank()) Text(sub, style = MaterialTheme.typography.bodyLarge, color = MutedTextColor, maxLines = 2)
         }
         if (state.screen == AppScreen.SHIPMENTS) {
             OutlinedIconButton(onClick = vm::goSettings) {
@@ -190,7 +190,7 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
                 AppScreen.SCANNER -> state.selectedBoxId?.let(vm::openBox)
                 else -> vm.goShipments()
             }
-        }, shape = RoundedCornerShape(14.dp)) { Text("Назад") }
+        }, shape = RoundedCornerShape(16.dp), modifier = Modifier.height(48.dp)) { Text("Назад") }
     }
     HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Color(0xFFC9D6FF))
 }
@@ -216,16 +216,17 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                     Text("Формат: ДД.ММ.ГГГГ", color = MutedTextColor)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (marketplace == "Ozon") Button(onClick = { marketplace = "Ozon" }, shape = RoundedCornerShape(14.dp)) { Text("Ozon") } else OutlinedButton(onClick = { marketplace = "Ozon" }, shape = RoundedCornerShape(14.dp)) { Text("Ozon") }
-                    if (marketplace == "Wildberries") Button(onClick = { marketplace = "Wildberries" }, shape = RoundedCornerShape(14.dp)) { Text("Wildberries") } else OutlinedButton(onClick = { marketplace = "Wildberries" }, shape = RoundedCornerShape(14.dp)) { Text("Wildberries") }
+                    if (marketplace == "Ozon") Button(onClick = { marketplace = "Ozon" }, shape = RoundedCornerShape(18.dp), modifier = Modifier.height(52.dp)) { Text("Ozon") } else OutlinedButton(onClick = { marketplace = "Ozon" }, shape = RoundedCornerShape(18.dp), modifier = Modifier.height(52.dp)) { Text("Ozon") }
+                    if (marketplace == "Wildberries") Button(onClick = { marketplace = "Wildberries" }, shape = RoundedCornerShape(18.dp), modifier = Modifier.height(52.dp)) { Text("Wildberries") } else OutlinedButton(onClick = { marketplace = "Wildberries" }, shape = RoundedCornerShape(18.dp), modifier = Modifier.height(52.dp)) { Text("Wildberries") }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { vm.createShipment(title, date, marketplace); title = "" },
                         colors = ButtonDefaults.buttonColors(containerColor = AccentColor),
-                        shape = RoundedCornerShape(14.dp)
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.height(56.dp)
                     ) { Text("+ Создать") }
-                    OutlinedButton(onClick = vm::goSettings, shape = RoundedCornerShape(14.dp)) { Text("Настройки") }
+                    OutlinedButton(onClick = vm::goSettings, shape = RoundedCornerShape(18.dp), modifier = Modifier.height(56.dp)) { Text("Настройки") }
                 }
             }
         }
@@ -249,11 +250,11 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(item.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                         Text("${item.date} • ${item.marketplace} • городов: ${item.cityCount} • коробок: ${item.boxCount} • единиц: ${item.itemCount}", color = MutedTextColor)
-                        Text(if (item.isArchived) "В архиве" else "Активна", color = if (item.isArchived) MutedTextColor else SuccessColor)
+                        Text(if (item.isArchived) "В архиве" else "Активна", color = if (item.isArchived) MutedTextColor else SuccessColor, fontWeight = FontWeight.SemiBold)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { vm.openShipment(item.id) }) { Text("Открыть") }
-                            OutlinedButton(onClick = { vm.generateExcel(item.id) }) { Text("Excel") }
-                            OutlinedButton(onClick = { vm.archiveShipment(item.id, !item.isArchived) }) { Text(if (item.isArchived) "Вернуть" else "Архив") }
+                            Button(onClick = { vm.openShipment(item.id) }, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(18.dp)) { Text("Открыть") }
+                            OutlinedButton(onClick = { vm.generateExcel(item.id) }, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(18.dp)) { Text("Excel") }
+                            OutlinedButton(onClick = { vm.archiveShipment(item.id, !item.isArchived) }, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(18.dp)) { Text(if (item.isArchived) "Вернуть" else "Архив") }
                         }
                     }
                 }
@@ -270,11 +271,11 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             ModernTextField(city, { city = it }, Modifier.weight(1f), label = "Город / направление")
-            Button(onClick = { vm.addCity(city); city = "" }) { Text("Добавить") }
+            Button(onClick = { vm.addCity(city); city = "" }, modifier = Modifier.height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("Добавить") }
         }
         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { vm.generateExcel() }) { Text("Сформировать Excel") }
-            OutlinedButton(onClick = { vm.exportCsv() }) { Text("CSV") }
+            Button(onClick = { vm.generateExcel() }, modifier = Modifier.height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("Сформировать Excel") }
+            OutlinedButton(onClick = { vm.exportCsv() }, modifier = Modifier.height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("CSV") }
         }
         if (state.shipmentCities.isEmpty()) {
             ModernCard(Modifier.fillMaxWidth()) {
@@ -292,7 +293,7 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
                             Text(item.cityName, fontWeight = FontWeight.Bold)
                             Text("Коробок: ${item.boxCount}, единиц: ${item.itemCount}")
                         }
-                        Button(onClick = { vm.openCity(item.id) }) { Text("Коробки") }
+                        Button(onClick = { vm.openCity(item.id) }, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(18.dp)) { Text("Коробки") }
                     }
                 }
             }
@@ -308,7 +309,7 @@ private fun BoxesScreen(state: AppUiState, vm: AppViewModel) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             ModernTextField(comment, { comment = it }, Modifier.weight(1f), label = "Комментарий к коробке, необязательно")
-            Button(onClick = { vm.createBox(comment); comment = "" }) { Text("+ Коробка") }
+            Button(onClick = { vm.createBox(comment); comment = "" }, modifier = Modifier.height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("+ Коробка") }
         }
         Spacer(Modifier.height(8.dp))
         LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -324,9 +325,9 @@ private fun BoxesScreen(state: AppUiState, vm: AppViewModel) {
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { vm.openBox(box.id) }) { Text("Открыть") }
-                            OutlinedButton(onClick = { renameId = box.id; newNumber = box.boxNumber }) { Text("Номер") }
-                            OutlinedButton(onClick = { vm.deleteBox(box.id) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerColor)) { Text("Удалить") }
+                            Button(onClick = { vm.openBox(box.id) }, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(18.dp)) { Text("Открыть") }
+                            OutlinedButton(onClick = { renameId = box.id; newNumber = box.boxNumber }, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(18.dp)) { Text("Номер") }
+                            OutlinedButton(onClick = { vm.deleteBox(box.id) }, modifier = Modifier.height(52.dp), shape = RoundedCornerShape(18.dp), colors = ButtonDefaults.outlinedButtonColors(contentColor = DangerColor)) { Text("Удалить") }
                         }
                     }
                 }
@@ -354,8 +355,8 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
         }
         Spacer(Modifier.height(8.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = vm::openScanner, modifier = Modifier.weight(1f)) { Text("Сканировать") }
-            OutlinedButton(onClick = { vm.generateExcel() }, modifier = Modifier.weight(1f)) { Text("Excel") }
+            Button(onClick = vm::openScanner, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("Сканировать") }
+            OutlinedButton(onClick = { vm.generateExcel() }, modifier = Modifier.weight(1f).height(56.dp), shape = RoundedCornerShape(18.dp)) { Text("Excel") }
         }
         Spacer(Modifier.height(8.dp))
 

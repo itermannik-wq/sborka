@@ -320,7 +320,7 @@ object ExcelService {
         .replace(" ", "")
 
     private val ARTICLE_ALIASES = setOf("article", "артикул", "sku", "vendorcode")
-    private val NAME_ALIASES = setOf("name", "название", "наименование", "товар", "номенклатура", "productname")
+    private val NAME_ALIASES = setOf("name", "название", "наименование", "товар", "номенклатура", "productname", "названиетовара", "наименованиетовара")
     private val BARCODE_ALIASES = setOf("barcode", "штрихкод", "код", "ean", "ean13")
     private val KNOWN_IMPORT_KEYS = ARTICLE_ALIASES + NAME_ALIASES + BARCODE_ALIASES
 

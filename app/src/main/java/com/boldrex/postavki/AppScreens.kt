@@ -7,6 +7,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -48,6 +50,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.QrCodeScanner
@@ -582,7 +585,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 val collapseRotation by androidx.compose.animation.core.animateFloatAsState(
                     targetValue = if (newShipmentExpanded) 180f else 0f,
-                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
+                    animationSpec = spring(dampingRatio = 0.58f, stiffness = 520f),
                     label = "new_shipment_collapse_rotation"
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -590,7 +593,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                     Text("Новая поставка", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor, modifier = Modifier.weight(1f))
                     IconButton(onClick = { newShipmentExpanded = !newShipmentExpanded }) {
                         Icon(
-                            imageVector = Icons.Outlined.Archive,
+                            imageVector = Icons.Outlined.ExpandMore,
                             contentDescription = if (newShipmentExpanded) "Свернуть" else "Развернуть",
                             tint = AccentColor,
                             modifier = Modifier.rotate(collapseRotation)
@@ -599,8 +602,8 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                 }
                 AnimatedVisibility(
                     visible = newShipmentExpanded,
-                    enter = fadeIn(animationSpec = tween(220)) + expandVertically(animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)),
-                    exit = fadeOut(animationSpec = tween(160)) + shrinkVertically(animationSpec = tween(220))
+                    enter = fadeIn(animationSpec = tween(260)) + slideInVertically(animationSpec = spring(dampingRatio = 0.68f, stiffness = 460f)) { -it / 5 } + expandVertically(animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)),
+                    exit = fadeOut(animationSpec = tween(170)) + slideOutVertically(animationSpec = tween(210)) { -it / 6 } + shrinkVertically(animationSpec = tween(220))
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 ModernTextField(
@@ -673,21 +676,18 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
 
 @Composable
 private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val animatedBorder by androidx.compose.animation.animateColorAsState(
-        targetValue = if (selected) AccentColor else CardBorderColor,
-        animationSpec = tween(260),
-        label = "marketplace_border"
-    )
-    val animatedContainer by androidx.compose.animation.animateColorAsState(
-        targetValue = if (selected) Color(0xFFF3F7FF) else Color.White,
-        animationSpec = tween(260),
-        label = "marketplace_container"
-    )
-    val animatedDotBorder by androidx.compose.animation.animateColorAsState(
-        targetValue = if (selected) AccentColor else Color(0xFFAAB4C8),
-        animationSpec = tween(260),
-        label = "marketplace_dot_border"
-    )
+    val transition = androidx.compose.animation.core.updateTransition(targetState = selected, label = "marketplace_transition")
+    val animatedBorder by transition.animateColor(label = "marketplace_border") { if (it) AccentColor else CardBorderColor }
+    val animatedContainer by transition.animateColor(label = "marketplace_container") { if (it) Color(0xFFF2F7FF) else Color.White }
+    val animatedDotBorder by transition.animateColor(label = "marketplace_dot_border") { if (it) AccentColor else Color(0xFFAAB4C8) }
+    val indicatorScale by transition.animateFloat(
+        transitionSpec = { spring(dampingRatio = 0.52f, stiffness = 650f) },
+        label = "marketplace_indicator_scale"
+    ) { if (it) 1f else 0.65f }
+    val logoScale by transition.animateFloat(
+        transitionSpec = { tween(250) },
+        label = "marketplace_logo_scale"
+    ) { if (it) 1.04f else 0.96f }
 
     OutlinedButton(
         onClick = onClick,
@@ -709,18 +709,28 @@ private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifi
                 .border(1.8.dp, animatedDotBorder, CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            AnimatedContent(targetState = selected, label = "marketplace_dot") { isSelected ->
-                if (isSelected) Box(Modifier.size(8.dp).clip(CircleShape).background(AccentColor))
-            }
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .graphicsLayer {
+                        scaleX = indicatorScale
+                        scaleY = indicatorScale
+                        alpha = if (selected) 1f else 0f
+                    }
+                    .clip(CircleShape)
+                    .background(AccentColor)
+            )
         }
         Spacer(Modifier.width(8.dp))
-        MarketplaceLogo(
-            marketplace = title,
-            modifier = Modifier
-                .height(18.dp)
-                .width(marketplaceLogoWidth(title, 18)),
-            alpha = if (selected) 1f else 0.85f
-        )
+        Box(Modifier.graphicsLayer { scaleX = logoScale; scaleY = logoScale }) {
+            MarketplaceLogo(
+                marketplace = title,
+                modifier = Modifier
+                    .height(18.dp)
+                    .width(marketplaceLogoWidth(title, 18)),
+                alpha = if (selected) 1f else 0.82f
+            )
+        }
     }
 }
 

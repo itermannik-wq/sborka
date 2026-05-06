@@ -2,6 +2,10 @@ package com.boldrex.postavki
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.MediaPlayer
+import android.media.ToneGenerator
+import android.media.AudioManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -48,6 +52,7 @@ fun BarcodeScannerScreen(onCodeScanned: (String) -> Unit, onClose: () -> Unit) {
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> hasPermission = granted }
     val executor = remember { Executors.newSingleThreadExecutor() }
     val handled = remember { AtomicBoolean(false) }
+    val playScanSound = rememberScanSuccessSoundPlayer()
 
     LaunchedEffect(Unit) {
         if (!hasPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
@@ -106,6 +111,7 @@ fun BarcodeScannerScreen(onCodeScanned: (String) -> Unit, onClose: () -> Unit) {
                             .addOnSuccessListener { barcodes ->
                                 val value = barcodes.firstNotNullOfOrNull(::decodeBarcodeText)
                                 if (!value.isNullOrBlank() && handled.compareAndSet(false, true)) {
+                                    playScanSound()
                                     onCodeScanned(value)
                                 }
                             }
@@ -145,4 +151,47 @@ private fun decodeBarcodeBytes(bytes: ByteArray): String {
     if (windows1251.isNotBlank() && !windows1251.contains('\uFFFD')) return windows1251
 
     return utf8
+}
+
+
+@Composable
+private fun rememberScanSuccessSoundPlayer(): () -> Unit {
+    val context = LocalContext.current
+    val toneGenerator = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 90) }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            toneGenerator.release()
+        }
+    }
+
+    return remember(context, toneGenerator) {
+        {
+            val resId = context.resources.getIdentifier("barcode", "raw", context.packageName)
+            if (resId == 0) {
+                toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+            } else runCatching {
+                MediaPlayer.create(context, resId)?.apply {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    setOnCompletionListener { mp ->
+                        mp.reset()
+                        mp.release()
+                    }
+                    setOnErrorListener { mp, _, _ ->
+                        mp.reset()
+                        mp.release()
+                        true
+                    }
+                    start()
+                } ?: toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+            }.onFailure {
+                toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
+            }
+        }
+    }
 }

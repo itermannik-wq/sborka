@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,9 +23,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -104,6 +107,9 @@ private val SoftBlueColor = Color(0xFFEEF4FF)
 private val SuccessColor = Color(0xFF16A34A)
 private val DangerColor = Color(0xFFEF4444)
 
+private val CompactScreenBreakpoint = 380.dp
+private val NarrowScreenBreakpoint = 340.dp
+
 @Composable
 private fun AppPrimaryButton(
     text: String,
@@ -113,16 +119,26 @@ private fun AppPrimaryButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.height(56.dp),
-        shape = RoundedCornerShape(18.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp),
+        modifier = modifier
+            .defaultMinSize(minHeight = 44.dp)
+            .heightIn(min = 44.dp),
+        shape = RoundedCornerShape(14.dp),
+        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
         colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(8.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(5.dp))
         }
-        Text(text, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            text = text,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            lineHeight = 15.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -136,20 +152,66 @@ private fun AppSecondaryButton(
 ) {
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.height(56.dp),
-        shape = RoundedCornerShape(18.dp),
+        modifier = modifier
+            .defaultMinSize(minHeight = 44.dp)
+            .heightIn(min = 44.dp),
+        shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, CardBorderColor),
-        contentPadding = PaddingValues(horizontal = 14.dp),
+        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = Color.White,
             contentColor = if (danger) DangerColor else MainTextColor
         )
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(21.dp))
-            Spacer(Modifier.width(8.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(5.dp))
         }
-        Text(text, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            text = text,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            lineHeight = 15.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun AppIconActionButton(
+    icon: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    danger: Boolean = false,
+    primary: Boolean = false,
+    onClick: () -> Unit
+) {
+    if (primary) {
+        Button(
+            onClick = onClick,
+            modifier = modifier.size(44.dp),
+            shape = RoundedCornerShape(14.dp),
+            contentPadding = PaddingValues(0.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+        ) {
+            Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(20.dp))
+        }
+    } else {
+        OutlinedIconButton(
+            onClick = onClick,
+            modifier = modifier.size(44.dp),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, CardBorderColor)
+        ) {
+            Icon(
+                icon,
+                contentDescription = contentDescription,
+                tint = if (danger) DangerColor else MainTextColor,
+                modifier = Modifier.size(20.dp)
+            )
+        }
     }
 }
 
@@ -443,7 +505,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                     placeholder = "2026-05-05",
                     leadingIcon = Icons.Outlined.CalendarMonth
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     MarketplaceButton(
                         title = "Ozon",
                         selected = marketplace == "Ozon",
@@ -457,12 +519,12 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                         onClick = { marketplace = "Wildberries" }
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     AppPrimaryButton("Создать", Modifier.weight(1f), Icons.Outlined.Add) {
                         vm.createShipment(title, date, marketplace)
                         title = ""
                     }
-                    AppSecondaryButton("Настройки", Modifier.weight(1f), Icons.Outlined.Settings, onClick = vm::goSettings)
+                    AppIconActionButton(Icons.Outlined.Settings, "Настройки", onClick = vm::goSettings)
                 }
             }
         }
@@ -499,9 +561,12 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
 private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.height(56.dp),
-        shape = RoundedCornerShape(18.dp),
-        border = BorderStroke(1.4.dp, if (selected) AccentColor else CardBorderColor),
+        modifier = modifier
+            .defaultMinSize(minHeight = 44.dp)
+            .heightIn(min = 44.dp),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.3.dp, if (selected) AccentColor else CardBorderColor),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
         colors = ButtonDefaults.outlinedButtonColors(
             containerColor = if (selected) Color(0xFFF6F9FF) else Color.White,
             contentColor = if (selected) AccentColor else MutedTextColor
@@ -509,54 +574,77 @@ private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifi
     ) {
         Box(
             modifier = Modifier
-                .size(22.dp)
+                .size(18.dp)
                 .clip(CircleShape)
-                .border(2.dp, if (selected) AccentColor else Color(0xFFAAB4C8), CircleShape),
+                .border(1.8.dp, if (selected) AccentColor else Color(0xFFAAB4C8), CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            if (selected) Box(Modifier.size(10.dp).clip(CircleShape).background(AccentColor))
+            if (selected) Box(Modifier.size(8.dp).clip(CircleShape).background(AccentColor))
         }
-        Spacer(Modifier.width(8.dp))
-        Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.width(5.dp))
+        Text(
+            title,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            lineHeight = 15.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
 @Composable
 private fun ShipmentCard(item: ShipmentCardData, vm: AppViewModel) {
     ModernCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AppIconBubble(Icons.Outlined.Business, modifier = Modifier.size(54.dp))
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(item.title, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        Icon(Icons.Outlined.CalendarMonth, null, tint = MutedTextColor, modifier = Modifier.size(18.dp))
-                        Text(item.date, color = MutedTextColor, fontSize = 14.sp, maxLines = 1)
-                        Text("•", color = MutedTextColor)
-                        Text(item.marketplace, color = MutedTextColor, fontSize = 14.sp, maxLines = 1)
-                        Text("•", color = MutedTextColor)
-                        Text("${item.cityCount} город", color = MutedTextColor, fontSize = 14.sp, maxLines = 1)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val compact = maxWidth < CompactScreenBreakpoint
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                if (compact) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AppIconBubble(Icons.Outlined.Business, modifier = Modifier.size(50.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(item.title, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("${item.date} • ${item.marketplace} • ${item.cityCount} город", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    StatusBadge(if (item.isArchived) "В архиве" else "Активна", tone = if (item.isArchived) BadgeTone.Gray else BadgeTone.Green)
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AppIconBubble(Icons.Outlined.Business, modifier = Modifier.size(54.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(item.title, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Icon(Icons.Outlined.CalendarMonth, null, tint = MutedTextColor, modifier = Modifier.size(18.dp))
+                                Text(item.date, color = MutedTextColor, fontSize = 14.sp, maxLines = 1)
+                                Text("•", color = MutedTextColor)
+                                Text(item.marketplace, color = MutedTextColor, fontSize = 14.sp, maxLines = 1)
+                                Text("•", color = MutedTextColor)
+                                Text("${item.cityCount} город", color = MutedTextColor, fontSize = 14.sp, maxLines = 1)
+                            }
+                        }
+                        StatusBadge(if (item.isArchived) "В архиве" else "Активна", tone = if (item.isArchived) BadgeTone.Gray else BadgeTone.Green)
                     }
                 }
-                StatusBadge(if (item.isArchived) "В архиве" else "Активна", tone = if (item.isArchived) BadgeTone.Gray else BadgeTone.Green)
-            }
 
-            HorizontalDivider(color = CardBorderColor.copy(alpha = 0.7f))
-            StatsRow(
-                firstValue = item.boxCount.toString(),
-                firstLabel = "Коробки",
-                secondValue = item.itemCount.toString(),
-                secondLabel = "Единицы",
-                thirdValue = item.positionCount.toString(),
-                thirdLabel = "Позиций"
-            )
-            HorizontalDivider(color = CardBorderColor.copy(alpha = 0.7f))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppPrimaryButton("Открыть", Modifier.weight(1f), Icons.Outlined.FileDownload) { vm.openShipment(item.id) }
-                AppSecondaryButton("Excel", Modifier.weight(1f), Icons.Outlined.Description) { vm.generateExcel(item.id) }
-                AppSecondaryButton(if (item.isArchived) "Вернуть" else "Архив", Modifier.weight(1f), Icons.Outlined.Archive) {
-                    vm.archiveShipment(item.id, !item.isArchived)
+                HorizontalDivider(color = CardBorderColor.copy(alpha = 0.7f))
+                StatsRow(
+                    firstValue = item.boxCount.toString(),
+                    firstLabel = "Коробки",
+                    secondValue = item.itemCount.toString(),
+                    secondLabel = "Единицы",
+                    thirdValue = item.positionCount.toString(),
+                    thirdLabel = "Позиций"
+                )
+                HorizontalDivider(color = CardBorderColor.copy(alpha = 0.7f))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AppPrimaryButton("Открыть", Modifier.weight(1f), Icons.Outlined.FileDownload) { vm.openShipment(item.id) }
+                    AppIconActionButton(Icons.Outlined.Description, "Excel") { vm.generateExcel(item.id) }
+                    AppIconActionButton(Icons.Outlined.Archive, if (item.isArchived) "Вернуть" else "Архив") {
+                        vm.archiveShipment(item.id, !item.isArchived)
+                    }
                 }
             }
         }
@@ -572,12 +660,31 @@ private fun StatsRow(
     thirdValue: String,
     thirdLabel: String
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        StatItem(Icons.Outlined.Inventory2, firstValue, firstLabel, Modifier.weight(1f))
-        StatDivider()
-        StatItem(Icons.Outlined.Inventory2, secondValue, secondLabel, Modifier.weight(1f))
-        StatDivider()
-        StatItem(Icons.Outlined.Description, thirdValue, thirdLabel, Modifier.weight(1f))
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val compact = maxWidth < NarrowScreenBreakpoint
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            if (compact) {
+                CompactStatItem(firstValue, firstLabel, Modifier.weight(1f))
+                StatDivider()
+                CompactStatItem(secondValue, secondLabel, Modifier.weight(1f))
+                StatDivider()
+                CompactStatItem(thirdValue, thirdLabel, Modifier.weight(1f))
+            } else {
+                StatItem(Icons.Outlined.Inventory2, firstValue, firstLabel, Modifier.weight(1f))
+                StatDivider()
+                StatItem(Icons.Outlined.Inventory2, secondValue, secondLabel, Modifier.weight(1f))
+                StatDivider()
+                StatItem(Icons.Outlined.Description, thirdValue, thirdLabel, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactStatItem(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp, color = MainTextColor, maxLines = 1)
+        Text(label, color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
     }
 }
 
@@ -608,14 +715,14 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
             Spacer(Modifier.height(12.dp))
         }
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             ModernTextField(city, { city = it }, Modifier.weight(1f), label = "Город / направление", placeholder = "Город / направление", leadingIcon = Icons.Outlined.Search)
-            AppPrimaryButton("Добавить", Modifier.width(136.dp), Icons.Outlined.Add) { vm.addCity(city); city = "" }
+            AppIconActionButton(Icons.Outlined.Add, "Добавить", primary = true) { vm.addCity(city); city = "" }
         }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            AppPrimaryButton("Сформировать Excel", Modifier.weight(1.35f), Icons.Outlined.Description) { vm.generateExcel() }
-            AppSecondaryButton("CSV", Modifier.weight(0.65f), Icons.Outlined.FileDownload) { vm.exportCsv() }
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            AppPrimaryButton("Excel", Modifier.weight(1f), Icons.Outlined.Description) { vm.generateExcel() }
+            AppSecondaryButton("CSV", Modifier.widthIn(min = 76.dp, max = 92.dp), Icons.Outlined.FileDownload) { vm.exportCsv() }
         }
         Spacer(Modifier.height(12.dp))
 
@@ -656,20 +763,34 @@ private fun ShipmentSummaryCard(item: ShipmentCardData) {
 @Composable
 private fun CityCard(item: ShipmentCityCard, onOpen: () -> Unit) {
     ModernCard(Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                AppIconBubble(Icons.Outlined.Business, modifier = Modifier.size(52.dp))
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(item.cityName, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusBadge("${item.boxCount} коробок", tone = BadgeTone.Gray)
-                        StatusBadge("${item.itemCount} единиц", tone = BadgeTone.Gray)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val compact = maxWidth < CompactScreenBreakpoint
+            if (compact) {
+                Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AppIconBubble(Icons.Outlined.Business, modifier = Modifier.size(46.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(item.cityName, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${item.boxCount} коробок • ${item.itemCount} единиц", color = MutedTextColor, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                    AppPrimaryButton("Коробки", Modifier.widthIn(min = 96.dp, max = 112.dp), Icons.Outlined.Inventory2, onClick = onOpen)
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        AppIconBubble(Icons.Outlined.Business, modifier = Modifier.size(52.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(item.cityName, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                StatusBadge("${item.boxCount} коробок", tone = BadgeTone.Gray)
+                                StatusBadge("${item.itemCount} единиц", tone = BadgeTone.Gray)
+                            }
+                        }
+                    }
+                    AppPrimaryButton("Коробки", Modifier.widthIn(min = 104.dp, max = 120.dp), Icons.Outlined.Inventory2, onClick = onOpen)
+                    AppIconActionButton(Icons.Outlined.MoreVert, "Меню", onClick = {})
                 }
             }
-            AppPrimaryButton("Коробки", Modifier.width(124.dp), Icons.Outlined.Inventory2, onClick = onOpen)
-            IconButton(onClick = {}) { Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = MutedTextColor) }
         }
     }
 }
@@ -689,16 +810,16 @@ private fun BoxesScreen(state: AppUiState, vm: AppViewModel) {
         Spacer(Modifier.height(12.dp))
 
         ModernCard(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 ModernTextField(
                     value = comment,
                     onValueChange = { comment = it },
                     modifier = Modifier.weight(1f),
                     label = "Комментарий",
-                    placeholder = "Комментарий к коробке, необязательно",
-                    singleLine = false
+                    placeholder = "Комментарий к коробке",
+                    singleLine = true
                 )
-                AppPrimaryButton("+ Коробка", Modifier.width(142.dp), Icons.Outlined.Add) {
+                AppIconActionButton(Icons.Outlined.Add, "Создать коробку", primary = true) {
                     vm.createBox(comment)
                     comment = ""
                 }
@@ -735,10 +856,11 @@ private fun ContextStrip(title: String, details: String) {
     ModernCard(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             AppIconBubble(Icons.Outlined.Business, modifier = Modifier.size(46.dp))
-            Text(title, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (details.isNotBlank()) {
-                Text("•", color = MutedTextColor)
-                Text(details, color = MutedTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (details.isNotBlank()) {
+                    Text(details, color = MutedTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
+                }
             }
         }
     }
@@ -756,31 +878,38 @@ private fun BoxCard(
     onDelete: () -> Unit
 ) {
     ModernCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AppIconBubble(Icons.Outlined.Inventory2, modifier = Modifier.size(50.dp))
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(box.boxNumber, fontWeight = FontWeight.ExtraBold, fontSize = 25.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        StatusBadge("Позиций: ${box.positionCount}", tone = BadgeTone.Gray)
-                        StatusBadge("Единиц: ${box.itemCount}", tone = BadgeTone.Gray)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val compact = maxWidth < CompactScreenBreakpoint
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AppIconBubble(Icons.Outlined.Inventory2, modifier = Modifier.size(50.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(box.boxNumber, fontWeight = FontWeight.ExtraBold, fontSize = if (compact) 22.sp else 25.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (compact) {
+                            Text("Позиций: ${box.positionCount} • Единиц: ${box.itemCount}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                StatusBadge("Позиций: ${box.positionCount}", tone = BadgeTone.Gray)
+                                StatusBadge("Единиц: ${box.itemCount}", tone = BadgeTone.Gray)
+                            }
+                        }
+                        if (!box.comment.isNullOrBlank()) Text(box.comment, color = MutedTextColor, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    if (!box.comment.isNullOrBlank()) Text(box.comment, color = MutedTextColor, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    IconButton(onClick = {}) { Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = MutedTextColor) }
                 }
-                IconButton(onClick = {}) { Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = MutedTextColor) }
-            }
-            if (renameId == box.id) {
+                if (renameId == box.id) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ModernTextField(newNumber, onNewNumberChange, Modifier.weight(1f), label = "Новый номер")
+                        AppPrimaryButton("OK", Modifier.width(64.dp), onClick = onSaveRename)
+                    }
+                }
+                HorizontalDivider(color = CardBorderColor.copy(alpha = 0.7f))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ModernTextField(newNumber, onNewNumberChange, Modifier.weight(1f), label = "Новый номер")
-                    AppPrimaryButton("OK", Modifier.width(78.dp), onClick = onSaveRename)
+                    AppPrimaryButton("Открыть", Modifier.weight(1f), Icons.Outlined.FileDownload, onClick = onOpen)
+                    AppIconActionButton(Icons.Outlined.Description, "Номер", onClick = onStartRename)
+                    AppIconActionButton(Icons.Outlined.Delete, "Удалить", danger = true, onClick = onDelete)
                 }
-            }
-            HorizontalDivider(color = CardBorderColor.copy(alpha = 0.7f))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppPrimaryButton("Открыть", Modifier.weight(1f), Icons.Outlined.FileDownload, onClick = onOpen)
-                AppSecondaryButton("Номер", Modifier.weight(1f), Icons.Outlined.Description, onClick = onStartRename)
-                AppSecondaryButton("Удалить", Modifier.weight(1f), Icons.Outlined.Delete, danger = true, onClick = onDelete)
             }
         }
     }
@@ -799,28 +928,31 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .border(1.dp, CardBorderColor, RoundedCornerShape(999.dp))
-                .background(Color.White)
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .border(1.dp, CardBorderColor, RoundedCornerShape(16.dp))
+                .background(Color.White),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Button(
                 onClick = vm::openScanner,
-                modifier = Modifier.weight(1f).height(56.dp),
-                shape = RoundedCornerShape(999.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                shape = RoundedCornerShape(16.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
             ) {
-                Icon(Icons.Outlined.QrCodeScanner, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Сканировать", fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Outlined.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("Сканировать", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             }
             TextButton(
                 onClick = { vm.generateExcel() },
-                modifier = Modifier.weight(1f).height(56.dp)
+                modifier = Modifier.widthIn(min = 88.dp).heightIn(min = 48.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
             ) {
-                Icon(Icons.Outlined.Description, contentDescription = null, tint = MutedTextColor)
-                Spacer(Modifier.width(8.dp))
-                Text("Excel", color = MutedTextColor, fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Outlined.Description, contentDescription = null, tint = MutedTextColor, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("Excel", color = MutedTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -828,13 +960,13 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
         if (state.pendingBarcode != null) {
             ModernCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Неизвестный код: ${state.pendingBarcode}", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MainTextColor)
+                    Text("Неизвестный код: ${state.pendingBarcode}", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MainTextColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text("Создайте товар — после сохранения он сразу добавится в коробку.", color = MutedTextColor)
                     ModernTextField(article, { article = it }, Modifier.fillMaxWidth(), label = "Артикул")
                     ModernTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Название товара")
                     ModernTextField(barcode, { barcode = it }, Modifier.fillMaxWidth(), label = "Штрихкод")
                     ModernTextField(qty, { qty = it }, Modifier.fillMaxWidth(), label = "Количество", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                    AppPrimaryButton("Создать товар и добавить", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
+                    AppPrimaryButton("Создать", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
                         vm.createProductAndAdd(article, name, barcode, qty.toIntOrNull() ?: 1, fromScan = true)
                     }
                 }
@@ -843,35 +975,45 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
         }
 
         ModernCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Быстрое добавление товаров", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ModernTextField(query, { query = it }, Modifier.weight(1f), label = "Артикул / название / код", placeholder = "333", leadingIcon = Icons.Outlined.Search)
-                    ModernTextField(qty, { qty = it }, Modifier.width(92.dp), label = "Кол", placeholder = "1", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AppPrimaryButton("Найти", Modifier.weight(1f), Icons.Outlined.Search) { vm.searchProducts(query) }
-                    AppSecondaryButton("Новый товар", Modifier.weight(1f), Icons.Outlined.Add) {
-                        barcode = query
-                        manualCreate = true
-                    }
-                }
-                AnimatedVisibility(visible = manualCreate && state.pendingBarcode == null, enter = fadeIn(), exit = fadeOut()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ModernTextField(article, { article = it }, Modifier.fillMaxWidth(), label = "Артикул нового товара")
-                        ModernTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Название нового товара")
-                        ModernTextField(barcode, { barcode = it }, Modifier.fillMaxWidth(), label = "Штрихкод / код")
-                        AppPrimaryButton("Создать и добавить", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
-                            vm.createProductAndAdd(article, name, barcode, qty.toIntOrNull() ?: 1, fromScan = false)
-                            article = ""
-                            name = ""
-                            barcode = ""
-                            manualCreate = false
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val compact = maxWidth < CompactScreenBreakpoint
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Быстрое добавление товаров", fontWeight = FontWeight.ExtraBold, fontSize = if (compact) 20.sp else 22.sp, color = MainTextColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (compact) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            ModernTextField(query, { query = it }, Modifier.fillMaxWidth(), label = "Артикул / название / код", placeholder = "333", leadingIcon = Icons.Outlined.Search)
+                            ModernTextField(qty, { qty = it }, Modifier.fillMaxWidth(), label = "Кол", placeholder = "1", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            ModernTextField(query, { query = it }, Modifier.weight(1f), label = "Артикул / название / код", placeholder = "333", leadingIcon = Icons.Outlined.Search)
+                            ModernTextField(qty, { qty = it }, Modifier.widthIn(min = 82.dp, max = 96.dp), label = "Кол", placeholder = "1", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                         }
                     }
-                }
-                state.productSearch.forEach { p ->
-                    ProductSearchRow(p = p, onAdd = { vm.addProductToCurrentBox(p.id, qty.toIntOrNull() ?: 1) })
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AppPrimaryButton("Найти", Modifier.weight(1f), Icons.Outlined.Search) { vm.searchProducts(query) }
+                        AppSecondaryButton("+ товар", Modifier.weight(1f), Icons.Outlined.Add) {
+                            barcode = query
+                            manualCreate = true
+                        }
+                    }
+                    AnimatedVisibility(visible = manualCreate && state.pendingBarcode == null, enter = fadeIn(), exit = fadeOut()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            ModernTextField(article, { article = it }, Modifier.fillMaxWidth(), label = "Артикул нового товара")
+                            ModernTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Название нового товара")
+                            ModernTextField(barcode, { barcode = it }, Modifier.fillMaxWidth(), label = "Штрихкод / код")
+                            AppPrimaryButton("Создать", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
+                                vm.createProductAndAdd(article, name, barcode, qty.toIntOrNull() ?: 1, fromScan = false)
+                                article = ""
+                                name = ""
+                                barcode = ""
+                                manualCreate = false
+                            }
+                        }
+                    }
+                    state.productSearch.forEach { p ->
+                        ProductSearchRow(p = p, onAdd = { vm.addProductToCurrentBox(p.id, qty.toIntOrNull() ?: 1) })
+                    }
                 }
             }
         }
@@ -935,39 +1077,74 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
                 scaleY = 1f - (progress.value * 0.1f)
             }
     ) {
-        Box(Modifier.fillMaxWidth()) {
-            Row(
-                Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    AppIconBubble(Icons.Outlined.Inventory2, modifier = Modifier.size(52.dp))
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(item.article, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("Код: ${item.barcode.orEmpty().ifBlank { item.article }}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1)
-                        Text("Название: ${item.name}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        StatusBadge("Ozon", tone = BadgeTone.Blue, modifier = Modifier.padding(top = 4.dp))
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val compact = maxWidth < CompactScreenBreakpoint
+            Box(Modifier.fillMaxWidth()) {
+                if (compact) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            AppIconBubble(Icons.Outlined.Inventory2, modifier = Modifier.size(50.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(item.article, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("Код: ${item.barcode.orEmpty().ifBlank { item.article }}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("Название: ${item.name}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                StatusBadge("Ozon", tone = BadgeTone.Blue, modifier = Modifier.padding(top = 4.dp))
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                QuantityIconButton(icon = Icons.Outlined.Remove, onClick = { onChangeQuantity(item.id, item.quantity - 1) })
+                                Text(item.quantity.toString(), modifier = Modifier.widthIn(min = 28.dp), fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MainTextColor, textAlign = TextAlign.Center)
+                                QuantityIconButton(icon = Icons.Outlined.Add, accent = true, onClick = { onChangeQuantity(item.id, item.quantity + 1) })
+                            }
+                            Button(
+                                onClick = { removing = true },
+                                enabled = !removing,
+                                modifier = Modifier.size(42.dp),
+                                shape = CircleShape,
+                                contentPadding = PaddingValues(0.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = DangerColor, contentColor = Color.White)
+                            ) {
+                                Icon(Icons.Outlined.Delete, contentDescription = "Удалить", modifier = Modifier.size(22.dp))
+                            }
+                        }
                     }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    QuantityIconButton(icon = Icons.Outlined.Remove, onClick = { onChangeQuantity(item.id, item.quantity - 1) })
-                    Text(item.quantity.toString(), fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MainTextColor, textAlign = TextAlign.Center)
-                    QuantityIconButton(icon = Icons.Outlined.Add, accent = true, onClick = { onChangeQuantity(item.id, item.quantity + 1) })
-                    Button(
-                        onClick = { removing = true },
-                        enabled = !removing,
-                        modifier = Modifier.size(48.dp),
-                        shape = CircleShape,
-                        contentPadding = PaddingValues(0.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = DangerColor, contentColor = Color.White)
+                } else {
+                    Row(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "Удалить", modifier = Modifier.size(22.dp))
+                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            AppIconBubble(Icons.Outlined.Inventory2, modifier = Modifier.size(52.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(item.article, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("Код: ${item.barcode.orEmpty().ifBlank { item.article }}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("Название: ${item.name}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                StatusBadge("Ozon", tone = BadgeTone.Blue, modifier = Modifier.padding(top = 4.dp))
+                            }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            QuantityIconButton(icon = Icons.Outlined.Remove, onClick = { onChangeQuantity(item.id, item.quantity - 1) })
+                            Text(item.quantity.toString(), modifier = Modifier.widthIn(min = 26.dp), fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MainTextColor, textAlign = TextAlign.Center)
+                            QuantityIconButton(icon = Icons.Outlined.Add, accent = true, onClick = { onChangeQuantity(item.id, item.quantity + 1) })
+                            Button(
+                                onClick = { removing = true },
+                                enabled = !removing,
+                                modifier = Modifier.size(42.dp),
+                                shape = CircleShape,
+                                contentPadding = PaddingValues(0.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = DangerColor, contentColor = Color.White)
+                            ) {
+                                Icon(Icons.Outlined.Delete, contentDescription = "Удалить", modifier = Modifier.size(22.dp))
+                            }
+                        }
                     }
                 }
+                if (removing) ParticleDissolveOverlay(progress = progress.value)
             }
-            if (removing) ParticleDissolveOverlay(progress = progress.value)
         }
     }
 }
@@ -976,7 +1153,7 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
 private fun QuantityIconButton(icon: ImageVector, accent: Boolean = false, onClick: () -> Unit) {
     OutlinedIconButton(
         onClick = onClick,
-        modifier = Modifier.size(44.dp),
+        modifier = Modifier.size(40.dp),
         shape = CircleShape,
         border = BorderStroke(1.2.dp, if (accent) AccentColor else Color(0xFF98A2B3))
     ) {

@@ -35,6 +35,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import java.nio.charset.Charset
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -103,7 +104,7 @@ fun BarcodeScannerScreen(onCodeScanned: (String) -> Unit, onClose: () -> Unit) {
                         val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
                         scanner.process(image)
                             .addOnSuccessListener { barcodes ->
-                                val value = barcodes.firstOrNull { !it.rawValue.isNullOrBlank() }?.rawValue
+                                val value = barcodes.firstNotNullOfOrNull(::decodeBarcodeText)
                                 if (!value.isNullOrBlank() && handled.compareAndSet(false, true)) {
                                     onCodeScanned(value)
                                 }
@@ -118,4 +119,30 @@ fun BarcodeScannerScreen(onCodeScanned: (String) -> Unit, onClose: () -> Unit) {
         )
         Button(onClick = onClose, Modifier.fillMaxWidth().padding(8.dp)) { Text("Закрыть сканер") }
     }
+}
+
+private fun decodeBarcodeText(barcode: Barcode): String? {
+    val raw = barcode.rawValue?.trim().orEmpty()
+    val bytes = barcode.rawBytes
+    if (bytes == null) return raw.ifBlank { null }
+
+    val decoded = decodeBarcodeBytes(bytes)
+    if (decoded.isBlank()) return raw.ifBlank { null }
+
+    val rawLooksCorrupted = raw.contains('\uFFFD') || raw.count { it == '?' } >= 2
+    return when {
+        raw.isBlank() -> decoded
+        rawLooksCorrupted -> decoded
+        else -> raw
+    }
+}
+
+private fun decodeBarcodeBytes(bytes: ByteArray): String {
+    val utf8 = bytes.toString(Charsets.UTF_8).trim()
+    if (utf8.isNotBlank() && !utf8.contains('\uFFFD')) return utf8
+
+    val windows1251 = bytes.toString(Charset.forName("windows-1251")).trim()
+    if (windows1251.isNotBlank() && !windows1251.contains('\uFFFD')) return windows1251
+
+    return utf8
 }

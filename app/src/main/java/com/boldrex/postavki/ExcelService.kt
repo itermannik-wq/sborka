@@ -319,9 +319,38 @@ object ExcelService {
         .replace("-", "")
         .replace(" ", "")
 
-    private val ARTICLE_ALIASES = setOf("article", "артикул", "sku", "vendorcode")
-    private val NAME_ALIASES = setOf("name", "название", "наименование", "товар", "номенклатура", "productname", "названиетовара", "наименованиетовара")
-    private val BARCODE_ALIASES = setOf("barcode", "штрихкод", "код", "ean", "ean13")
+    private val ARTICLE_ALIASES = setOf(
+        "article",
+        "артикул",
+        "артикултовара",
+        "sku",
+        "vendorcode",
+        "vendorarticle",
+        "offerid"
+    )
+    private val NAME_ALIASES = setOf(
+        "name",
+        "title",
+        "название",
+        "названиетовара",
+        "наименование",
+        "наименованиетовара",
+        "товар",
+        "номенклатура",
+        "названиеноменклатуры",
+        "productname",
+        "producttitle"
+    )
+    private val BARCODE_ALIASES = setOf(
+        "barcode",
+        "barcodes",
+        "штрихкод",
+        "штрихкодтовара",
+        "код",
+        "кодтовара",
+        "ean",
+        "ean13"
+    )
     private val KNOWN_IMPORT_KEYS = ARTICLE_ALIASES + NAME_ALIASES + BARCODE_ALIASES
 
     private fun parseSharedStrings(xml: String): List<String> = Regex("<si[^>]*>(.*?)</si>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))

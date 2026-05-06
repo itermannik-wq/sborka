@@ -2,11 +2,15 @@ package com.boldrex.postavki
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -74,6 +78,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -570,14 +575,34 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var marketplace by remember { mutableStateOf("Ozon") }
     var query by remember { mutableStateOf("") }
+    var newShipmentExpanded by remember { mutableStateOf(true) }
 
     Column(Modifier.fillMaxSize()) {
         ModernCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                val collapseRotation by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (newShipmentExpanded) 180f else 0f,
+                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 360f),
+                    label = "new_shipment_collapse_rotation"
+                )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     AppIconBubble(Icons.Outlined.Inventory2, modifier = Modifier.size(42.dp))
-                    Text("Новая поставка", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor)
+                    Text("Новая поставка", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { newShipmentExpanded = !newShipmentExpanded }) {
+                        Icon(
+                            imageVector = Icons.Outlined.Archive,
+                            contentDescription = if (newShipmentExpanded) "Свернуть" else "Развернуть",
+                            tint = AccentColor,
+                            modifier = Modifier.rotate(collapseRotation)
+                        )
+                    }
                 }
+                AnimatedVisibility(
+                    visible = newShipmentExpanded,
+                    enter = fadeIn(animationSpec = tween(220)) + expandVertically(animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f)),
+                    exit = fadeOut(animationSpec = tween(160)) + shrinkVertically(animationSpec = tween(220))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 ModernTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -614,6 +639,8 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                     }
                     AppIconActionButton(Icons.Outlined.Settings, "Настройки", onClick = vm::goSettings)
                 }
+                    }
+                }
             }
         }
 
@@ -646,16 +673,32 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
 
 @Composable
 private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val animatedBorder by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) AccentColor else CardBorderColor,
+        animationSpec = tween(260),
+        label = "marketplace_border"
+    )
+    val animatedContainer by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) Color(0xFFF3F7FF) else Color.White,
+        animationSpec = tween(260),
+        label = "marketplace_container"
+    )
+    val animatedDotBorder by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) AccentColor else Color(0xFFAAB4C8),
+        animationSpec = tween(260),
+        label = "marketplace_dot_border"
+    )
+
     OutlinedButton(
         onClick = onClick,
         modifier = modifier
             .defaultMinSize(minHeight = 44.dp)
             .heightIn(min = 44.dp),
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.3.dp, if (selected) AccentColor else CardBorderColor),
+        border = BorderStroke(1.3.dp, animatedBorder),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
         colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = if (selected) Color(0xFFF6F9FF) else Color.White,
+            containerColor = animatedContainer,
             contentColor = if (selected) AccentColor else MutedTextColor
         )
     ) {
@@ -663,10 +706,12 @@ private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifi
             modifier = Modifier
                 .size(18.dp)
                 .clip(CircleShape)
-                .border(1.8.dp, if (selected) AccentColor else Color(0xFFAAB4C8), CircleShape),
+                .border(1.8.dp, animatedDotBorder, CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            if (selected) Box(Modifier.size(8.dp).clip(CircleShape).background(AccentColor))
+            AnimatedContent(targetState = selected, label = "marketplace_dot") { isSelected ->
+                if (isSelected) Box(Modifier.size(8.dp).clip(CircleShape).background(AccentColor))
+            }
         }
         Spacer(Modifier.width(8.dp))
         MarketplaceLogo(

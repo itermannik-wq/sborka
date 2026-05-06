@@ -37,7 +37,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
-import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -58,7 +58,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
@@ -100,7 +99,6 @@ private val AppBackgroundGradient = Brush.verticalGradient(
 )
 
 private val AccentColor = Color(0xFF246BFE)
-private val AccentDarkColor = Color(0xFF1F63F2)
 private val MainTextColor = Color(0xFF0B1226)
 private val MutedTextColor = Color(0xFF667085)
 private val SoftTextColor = Color(0xFF7A869A)
@@ -356,9 +354,9 @@ private fun MarketplaceMetaRow(
 }
 
 @Composable
-private fun AppSectionTitle(text: String, modifier: Modifier = Modifier) {
+private fun AppSectionTitle(modifier: Modifier = Modifier) {
     Text(
-        text = text,
+        text = "Товары в коробке",
         modifier = modifier,
         fontWeight = FontWeight.ExtraBold,
         fontSize = 22.sp,
@@ -406,8 +404,7 @@ private fun ModernTextField(
 private fun SearchField(
     query: String,
     onQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    placeholder: String
+    modifier: Modifier = Modifier
 ) {
     ModernCard(modifier) {
         Row(
@@ -423,7 +420,7 @@ private fun SearchField(
                 onValueChange = onQueryChange,
                 modifier = Modifier.weight(1f).height(56.dp),
                 singleLine = true,
-                placeholder = { Text(placeholder, color = SoftTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                placeholder = { Text("Поиск по названию / городу / маркетплейсу", color = SoftTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
@@ -515,7 +512,7 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
                     .background(Color.White)
                     .border(1.dp, CardBorderColor.copy(alpha = 0.55f), RoundedCornerShape(18.dp))
             ) {
-                Icon(Icons.Outlined.ArrowBack, contentDescription = "Назад", tint = MainTextColor)
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Назад", tint = MainTextColor)
             }
             Spacer(Modifier.width(12.dp))
         }
@@ -625,7 +622,6 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
             query = query,
             onQueryChange = { query = it },
             modifier = Modifier.fillMaxWidth(),
-            placeholder = "Поиск по названию / городу / маркетплейсу"
         )
         Spacer(Modifier.height(12.dp))
 
@@ -724,11 +720,8 @@ private fun ShipmentCard(item: ShipmentCardData, vm: AppViewModel) {
                 HorizontalDivider(color = CardBorderColor.copy(alpha = 0.7f))
                 StatsRow(
                     firstValue = item.boxCount.toString(),
-                    firstLabel = "Коробки",
                     secondValue = item.itemCount.toString(),
-                    secondLabel = "Единицы",
-                    thirdValue = item.positionCount.toString(),
-                    thirdLabel = "Позиций"
+                    thirdValue = item.positionCount.toString()
                 )
                 HorizontalDivider(color = CardBorderColor.copy(alpha = 0.7f))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -746,12 +739,12 @@ private fun ShipmentCard(item: ShipmentCardData, vm: AppViewModel) {
 @Composable
 private fun StatsRow(
     firstValue: String,
-    firstLabel: String,
     secondValue: String,
-    secondLabel: String,
-    thirdValue: String,
-    thirdLabel: String
+    thirdValue: String
 ) {
+    val firstLabel = "Коробки"
+    val secondLabel = "Единицы"
+    val thirdLabel = "Позиций"
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val compact = maxWidth < NarrowScreenBreakpoint
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -852,7 +845,7 @@ private fun ShipmentSummaryCard(item: ShipmentCardData) {
                 MarketplaceBadge(item.marketplace)
             }
             HorizontalDivider(color = CardBorderColor.copy(alpha = 0.7f))
-            StatsRow(item.boxCount.toString(), "Коробки", item.itemCount.toString(), "Единицы", item.positionCount.toString(), "Позиций")
+            StatsRow(item.boxCount.toString(), item.itemCount.toString(), item.positionCount.toString())
         }
     }
 }
@@ -1115,7 +1108,7 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
             }
         }
 
-        AppSectionTitle("Товары в коробке", Modifier.padding(top = 16.dp, bottom = 8.dp))
+        AppSectionTitle(Modifier.padding(top = 16.dp, bottom = 8.dp))
         LazyColumn(
             Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1281,8 +1274,8 @@ private fun ParticleDissolveOverlay(progress: Float) {
             drawRect(
                 color = Color(0xFFE7EDFF).copy(alpha = (0.95f - progress).coerceAtLeast(0f)),
                 topLeft = Offset(
-                    x = startX + dx.toFloat() - (particleW * shrink / 2f),
-                    y = startY + dy.toFloat() - (particleH * shrink / 2f)
+                    x = startX + dx - (particleW * shrink / 2f),
+                    y = startY + dy - (particleH * shrink / 2f)
                 ),
                 size = androidx.compose.ui.geometry.Size(particleW * shrink, particleH * shrink),
                 style = Fill

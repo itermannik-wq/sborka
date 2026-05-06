@@ -4,12 +4,16 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.spring
@@ -19,6 +23,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -455,9 +460,6 @@ fun AppRoot(vm: AppViewModel) {
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Header(state, vm)
-            AnimatedVisibility(visible = state.message != null, enter = fadeIn(), exit = fadeOut()) {
-                state.message?.let { AppMessage(text = it, onClose = vm::clearMessage) }
-            }
             AnimatedVisibility(visible = state.isBusy, enter = fadeIn(), exit = fadeOut()) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.Center) {
                     CircularProgressIndicator(color = AccentColor, strokeWidth = 3.dp)
@@ -474,6 +476,16 @@ fun AppRoot(vm: AppViewModel) {
                 )
                 AppScreen.SETTINGS -> SettingsScreen(state, vm)
             }
+        }
+        AnimatedVisibility(
+            visible = state.message != null,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 16.dp, vertical = 86.dp),
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 3 })
+        ) {
+            state.message?.let { AppMessage(text = it, onClose = vm::clearMessage) }
         }
     }
 }
@@ -1216,6 +1228,7 @@ private fun ProductSearchRow(p: ProductSearchData, onAdd: () -> Unit) {
 @Composable
 private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit) {
     var removing by remember(item.id) { mutableStateOf(false) }
+    var detailsOpen by remember(item.id) { mutableStateOf(false) }
     val progress = remember(item.id) { Animatable(0f) }
 
     LaunchedEffect(removing) {
@@ -1229,6 +1242,7 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
     ModernCard(
         Modifier
             .fillMaxWidth()
+            .clickable(enabled = !removing) { detailsOpen = true }
             .graphicsLayer {
                 alpha = 1f - (progress.value * 0.9f)
                 scaleX = 1f - (progress.value * 0.1f)
@@ -1253,7 +1267,7 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 QuantityIconButton(icon = Icons.Outlined.Remove, onClick = { onChangeQuantity(item.id, item.quantity - 1) })
-                                Text(item.quantity.toString(), modifier = Modifier.widthIn(min = 28.dp), fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MainTextColor, textAlign = TextAlign.Center)
+                                AnimatedQuantity(item.quantity, Modifier.widthIn(min = 28.dp))
                                 QuantityIconButton(icon = Icons.Outlined.Add, accent = true, onClick = { onChangeQuantity(item.id, item.quantity + 1) })
                             }
                             Button(
@@ -1286,7 +1300,7 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             QuantityIconButton(icon = Icons.Outlined.Remove, onClick = { onChangeQuantity(item.id, item.quantity - 1) })
-                            Text(item.quantity.toString(), modifier = Modifier.widthIn(min = 26.dp), fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MainTextColor, textAlign = TextAlign.Center)
+                            AnimatedQuantity(item.quantity, Modifier.widthIn(min = 26.dp))
                             QuantityIconButton(icon = Icons.Outlined.Add, accent = true, onClick = { onChangeQuantity(item.id, item.quantity + 1) })
                             Button(
                                 onClick = { removing = true },
@@ -1302,8 +1316,54 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
                     }
                 }
                 if (removing) ParticleDissolveOverlay(progress = progress.value)
+                AnimatedVisibility(
+                    visible = detailsOpen,
+                    modifier = Modifier.fillMaxSize(),
+                    enter = fadeIn() + scaleIn(initialScale = 0.92f),
+                    exit = fadeOut() + scaleOut(targetScale = 0.92f)
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.28f))
+                            .clickable { detailsOpen = false },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        ModernCard(Modifier.padding(horizontal = 18.dp)) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("Полное наименование", color = MutedTextColor, fontSize = 13.sp)
+                                Text(item.name, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                AppSecondaryButton("Закрыть", Modifier.fillMaxWidth(), onClick = { detailsOpen = false })
+                            }
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun AnimatedQuantity(value: Int, modifier: Modifier = Modifier) {
+    AnimatedContent(
+        targetState = value,
+        modifier = modifier,
+        transitionSpec = {
+            if (targetState > initialState) {
+                slideInVertically { it / 2 } + fadeIn() togetherWith slideOutVertically { -it / 2 } + fadeOut()
+            } else {
+                slideInVertically { -it / 2 } + fadeIn() togetherWith slideOutVertically { it / 2 } + fadeOut()
+            }.using(SizeTransform(clip = false))
+        },
+        label = "quantity_change"
+    ) { target ->
+        Text(
+            target.toString(),
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 20.sp,
+            color = MainTextColor,
+            textAlign = TextAlign.Center
+        )
     }
 }
 

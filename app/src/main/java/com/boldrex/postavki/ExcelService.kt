@@ -8,6 +8,7 @@ import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.InputStream
+import java.nio.charset.Charset
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -22,18 +23,19 @@ object ExcelService {
     suspend fun importProducts(context: Context, uri: Uri, repo: ShipmentRepository): ImportResult {
         val name = displayName(context, uri).lowercase(Locale.getDefault())
         val input = context.contentResolver.openInputStream(uri) ?: return ImportResult(0, 0, 1)
+        val bytes = input.readBytes()
         val rows = when {
-            name.endsWith(".xlsx") -> parseXlsx(input)
-            name.endsWith(".xml") -> parseXml(input.readBytes().toString(Charsets.UTF_8))
-            else -> parseCsv(input.readBytes().toString(Charsets.UTF_8))
+            name.endsWith(".xlsx") -> parseXlsx(bytes.inputStream())
+            name.endsWith(".xml") -> parseXml(decodeText(bytes))
+            else -> parseCsv(decodeText(bytes))
         }
         var ok = 0
         var errors = 0
         rows.forEach { row ->
             try {
-                val article = row["article"] ?: row["артикул"] ?: row["sku"] ?: ""
-                val title = row["name"] ?: row["название"] ?: row["товар"] ?: ""
-                val barcode = row["barcode"] ?: row["штрихкод"] ?: row["код"]
+                val article = valueByAliases(row, ARTICLE_ALIASES).orEmpty()
+                val title = valueByAliases(row, NAME_ALIASES).orEmpty()
+                val barcode = valueByAliases(row, BARCODE_ALIASES)
                 if (title.isBlank() && article.isBlank() && barcode.isNullOrBlank()) return@forEach
                 repo.createOrUpdateProduct(article, title.ifBlank { article.ifBlank { barcode.orEmpty() } }, barcode, createdFromScan = false)
                 ok++
@@ -222,14 +224,29 @@ object ExcelService {
         val clean = text.removePrefix("\uFEFF")
         val lines = clean.lines().filter { it.isNotBlank() }
         if (lines.isEmpty()) return emptyList()
-        val delimiter = if (lines.first().count { it == ';' } >= lines.first().count { it == ',' }) ';' else ','
+        val delimiter = detectDelimiter(lines.first())
         val first = splitCsvLine(lines.first(), delimiter).map { it.trim().lowercase(Locale.getDefault()) }
-        val hasHeader = first.any { it in setOf("article", "артикул", "sku", "name", "название", "barcode", "штрихкод") }
+        val hasHeader = first.any { normalizeKey(it) in KNOWN_IMPORT_KEYS }
         val headers = if (hasHeader) first else listOf("article", "name", "barcode")
         return lines.drop(if (hasHeader) 1 else 0).mapNotNull { line ->
             val values = splitCsvLine(line, delimiter)
             if (values.all { it.isBlank() }) null else headers.mapIndexedNotNull { index, key -> key to values.getOrElse(index) { "" }.trim() }.toMap()
         }
+    }
+
+    private fun detectDelimiter(header: String): Char {
+        val candidates = listOf(';', ',', '\t')
+        return candidates.maxByOrNull { d -> header.count { it == d } } ?: ';'
+    }
+
+    private fun decodeText(bytes: ByteArray): String {
+        if (bytes.size >= 2) {
+            if (bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte()) return bytes.toString(Charsets.UTF_16LE)
+            if (bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte()) return bytes.toString(Charsets.UTF_16BE)
+        }
+        val utf8 = bytes.toString(Charsets.UTF_8)
+        if (!utf8.contains('\uFFFD')) return utf8
+        return bytes.toString(Charset.forName("windows-1251"))
     }
 
     private fun splitCsvLine(line: String, delimiter: Char): List<String> {
@@ -285,9 +302,27 @@ object ExcelService {
         }.toList()
         if (rows.isEmpty()) return emptyList()
         val header = rows.first().map { it.trim().lowercase(Locale.getDefault()) }
-        val headers = if (header.any { it in setOf("article", "артикул", "sku", "name", "название", "barcode", "штрихкод") }) header else listOf("article", "name", "barcode")
+        val headers = if (header.any { normalizeKey(it) in KNOWN_IMPORT_KEYS }) header else listOf("article", "name", "barcode")
         return rows.drop(if (headers == header) 1 else 0).map { row -> headers.mapIndexed { i, h -> h to row.getOrElse(i) { "" }.trim() }.toMap() }
     }
+
+    private fun valueByAliases(row: Map<String, String>, aliases: Set<String>): String? {
+        val normalized = row.entries.associate { normalizeKey(it.key) to it.value }
+        return aliases.firstNotNullOfOrNull { normalized[it] }?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private fun normalizeKey(key: String): String = key
+        .trim()
+        .lowercase(Locale.getDefault())
+        .replace("\uFEFF", "")
+        .replace("_", "")
+        .replace("-", "")
+        .replace(" ", "")
+
+    private val ARTICLE_ALIASES = setOf("article", "артикул", "sku", "vendorcode")
+    private val NAME_ALIASES = setOf("name", "название", "наименование", "товар", "номенклатура", "productname")
+    private val BARCODE_ALIASES = setOf("barcode", "штрихкод", "код", "ean", "ean13")
+    private val KNOWN_IMPORT_KEYS = ARTICLE_ALIASES + NAME_ALIASES + BARCODE_ALIASES
 
     private fun parseSharedStrings(xml: String): List<String> = Regex("<si[^>]*>(.*?)</si>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         .findAll(xml).map { si ->

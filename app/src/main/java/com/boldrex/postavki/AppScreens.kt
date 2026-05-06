@@ -44,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.Image
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -58,6 +59,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -104,6 +106,36 @@ private fun AppSecondaryButton(text: String, modifier: Modifier = Modifier, onCl
         shape = RoundedCornerShape(18.dp),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = MainTextColor)
     ) { Text(text, fontWeight = FontWeight.Medium) }
+}
+
+
+@Composable
+private fun MarketplaceIconButton(
+    selected: Boolean,
+    logoRes: Int,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    if (selected) {
+        Button(
+            onClick = onClick,
+            modifier = modifier.height(56.dp),
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+        ) {
+            Image(painter = painterResource(logoRes), contentDescription = contentDescription, modifier = Modifier.height(18.dp))
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = modifier.height(56.dp),
+            shape = RoundedCornerShape(18.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MainTextColor)
+        ) {
+            Image(painter = painterResource(logoRes), contentDescription = contentDescription, modifier = Modifier.height(18.dp))
+        }
+    }
 }
 
 @Composable
@@ -255,8 +287,18 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                     Text("Формат: ДД.ММ.ГГГГ", color = MutedTextColor)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (marketplace == "Ozon") AppPrimaryButton("Ozon", Modifier.weight(1f)) { marketplace = "Ozon" } else AppSecondaryButton("Ozon", Modifier.weight(1f)) { marketplace = "Ozon" }
-                    if (marketplace == "Wildberries") AppPrimaryButton("Wildberries", Modifier.weight(1f)) { marketplace = "Wildberries" } else AppSecondaryButton("Wildberries", Modifier.weight(1f)) { marketplace = "Wildberries" }
+                    MarketplaceIconButton(
+                        selected = marketplace == "Ozon",
+                        logoRes = R.drawable.ozon_logo,
+                        contentDescription = "Ozon",
+                        modifier = Modifier.weight(1f)
+                    ) { marketplace = "Ozon" }
+                    MarketplaceIconButton(
+                        selected = marketplace == "Wildberries",
+                        logoRes = R.drawable.wildberries_logo,
+                        contentDescription = "Wildberries",
+                        modifier = Modifier.weight(1f)
+                    ) { marketplace = "Wildberries" }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     AppPrimaryButton("Создать", Modifier.weight(1f)) { vm.createShipment(title, date, marketplace); title = "" }

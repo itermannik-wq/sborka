@@ -676,18 +676,31 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
 
 @Composable
 private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    val transition = androidx.compose.animation.core.updateTransition(targetState = selected, label = "marketplace_transition")
-    val animatedBorder by transition.animateColor(label = "marketplace_border") { if (it) AccentColor else CardBorderColor }
-    val animatedContainer by transition.animateColor(label = "marketplace_container") { if (it) Color(0xFFF2F7FF) else Color.White }
-    val animatedDotBorder by transition.animateColor(label = "marketplace_dot_border") { if (it) AccentColor else Color(0xFFAAB4C8) }
-    val indicatorScale by transition.animateFloat(
-        transitionSpec = { spring(dampingRatio = 0.52f, stiffness = 650f) },
+    val animatedBorder by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) AccentColor else CardBorderColor,
+        animationSpec = tween(260),
+        label = "marketplace_border"
+    )
+    val animatedContainer by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) Color(0xFFF2F7FF) else Color.White,
+        animationSpec = tween(260),
+        label = "marketplace_container"
+    )
+    val animatedDotBorder by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) AccentColor else Color(0xFFAAB4C8),
+        animationSpec = tween(260),
+        label = "marketplace_dot_border"
+    )
+    val indicatorScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (selected) 1f else 0.65f,
+        animationSpec = spring(dampingRatio = 0.52f, stiffness = 650f),
         label = "marketplace_indicator_scale"
-    ) { if (it) 1f else 0.65f }
-    val logoScale by transition.animateFloat(
-        transitionSpec = { tween(250) },
+    )
+    val logoScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (selected) 1.04f else 0.96f,
+        animationSpec = tween(250),
         label = "marketplace_logo_scale"
-    ) { if (it) 1.04f else 0.96f }
+    )
 
     OutlinedButton(
         onClick = onClick,

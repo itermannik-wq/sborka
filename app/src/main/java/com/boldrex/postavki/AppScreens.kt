@@ -460,11 +460,6 @@ fun AppRoot(vm: AppViewModel) {
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Header(state, vm)
-            AnimatedVisibility(visible = state.isBusy, enter = fadeIn(), exit = fadeOut()) {
-                Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalArrangement = Arrangement.Center) {
-                    CircularProgressIndicator(color = AccentColor, strokeWidth = 3.dp)
-                }
-            }
             when (state.screen) {
                 AppScreen.SHIPMENTS -> ShipmentsScreen(state, vm)
                 AppScreen.CITIES -> CitiesScreen(state, vm)
@@ -486,6 +481,23 @@ fun AppRoot(vm: AppViewModel) {
             exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 3 })
         ) {
             state.message?.let { AppMessage(text = it, onClose = vm::clearMessage) }
+        }
+        AnimatedVisibility(
+            visible = state.isBusy,
+            modifier = Modifier.align(Alignment.Center),
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color.White.copy(alpha = 0.92f))
+                    .border(1.dp, CardBorderColor, RoundedCornerShape(18.dp))
+                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = AccentColor, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
+            }
         }
     }
 }
@@ -1325,15 +1337,36 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.28f))
+                            .background(Color(0xCC0B1226))
                             .clickable { detailsOpen = false },
                         contentAlignment = Alignment.Center
                     ) {
                         ModernCard(Modifier.padding(horizontal = 18.dp)) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        AppIconBubble(Icons.Outlined.Inventory2, modifier = Modifier.size(36.dp))
+                                        Text("Карточка товара", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                                    }
+                                    AppIconActionButton(
+                                        icon = Icons.Outlined.Remove,
+                                        contentDescription = "Закрыть",
+                                        modifier = Modifier.size(34.dp),
+                                        onClick = { detailsOpen = false }
+                                    )
+                                }
+                                HorizontalDivider(color = CardBorderColor.copy(alpha = 0.8f))
+                                Text(item.article, color = AccentColor, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
                                 Text("Полное наименование", color = MutedTextColor, fontSize = 13.sp)
-                                Text(item.name, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                AppSecondaryButton("Закрыть", Modifier.fillMaxWidth(), onClick = { detailsOpen = false })
+                                Text(
+                                    item.name,
+                                    color = MainTextColor,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                    lineHeight = 24.sp
+                                )
+                                MarketplaceBadge("Ozon", heightDp = 14)
+                                AppPrimaryButton("Закрыть", Modifier.fillMaxWidth(), onClick = { detailsOpen = false })
                             }
                         }
                     }

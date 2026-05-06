@@ -123,11 +123,18 @@ fun BarcodeScannerScreen(onCodeScanned: (String) -> Unit, onClose: () -> Unit) {
 
 private fun decodeBarcodeText(barcode: Barcode): String? {
     val raw = barcode.rawValue?.trim().orEmpty()
-    if (raw.isNotBlank() && !raw.contains('\uFFFD')) return raw
+    val bytes = barcode.rawBytes
+    if (bytes == null) return raw.ifBlank { null }
 
-    val bytes = barcode.rawBytes ?: return raw.ifBlank { null }
     val decoded = decodeBarcodeBytes(bytes)
-    return decoded.ifBlank { raw.ifBlank { null } }
+    if (decoded.isBlank()) return raw.ifBlank { null }
+
+    val rawLooksCorrupted = raw.contains('\uFFFD') || raw.count { it == '?' } >= 2
+    return when {
+        raw.isBlank() -> decoded
+        rawLooksCorrupted -> decoded
+        else -> raw
+    }
 }
 
 private fun decodeBarcodeBytes(bytes: ByteArray): String {

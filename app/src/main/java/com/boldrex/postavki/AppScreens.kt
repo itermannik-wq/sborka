@@ -110,6 +110,19 @@ private fun AppSecondaryButton(text: String, modifier: Modifier = Modifier, onCl
 
 
 @Composable
+private fun marketplaceLogoRes(name: String): Int =
+    if (name.equals("Wildberries", ignoreCase = true)) R.drawable.wildberries_logo else R.drawable.ozon_logo
+
+@Composable
+private fun MarketplaceLogo(name: String, modifier: Modifier = Modifier) {
+    Image(
+        painter = painterResource(marketplaceLogoRes(name)),
+        contentDescription = name,
+        modifier = modifier.height(18.dp)
+    )
+}
+
+@Composable
 private fun MarketplaceIconButton(
     selected: Boolean,
     logoRes: Int,
@@ -325,7 +338,11 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                 ModernCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(item.title, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.headlineSmall, color = MainTextColor)
-                        Text("${item.date} • ${item.marketplace} • городов: ${item.cityCount} • коробок: ${item.boxCount} • единиц: ${item.itemCount}", color = MutedTextColor)
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("${item.date} •", color = MutedTextColor)
+                            MarketplaceLogo(name = item.marketplace, modifier = Modifier.size(width = 72.dp, height = 18.dp))
+                            Text("• городов: ${item.cityCount} • коробок: ${item.boxCount} • единиц: ${item.itemCount}", color = MutedTextColor)
+                        }
                         StatusBadge(if (item.isArchived) "В архиве" else "Активна", isSuccess = !item.isArchived)
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppPrimaryButton("Открыть", Modifier.weight(1f)) { vm.openShipment(item.id) }

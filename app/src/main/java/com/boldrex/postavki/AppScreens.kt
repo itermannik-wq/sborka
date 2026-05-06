@@ -240,7 +240,7 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
         Column(Modifier.weight(1f)) {
             Text("Сборка поставок", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
             val sub = when (state.screen) {
-                AppScreen.SHIPMENTS -> "Поставки • Ozon / Wildberries"
+                AppScreen.SHIPMENTS -> "Поставки • Маркетплейсы"
                 AppScreen.CITIES -> state.selectedShipmentTitle
                 AppScreen.BOXES -> "${state.selectedShipmentTitle} • ${state.selectedCityName}"
                 AppScreen.BOX -> "${state.selectedCityName} • ${state.selectedBoxNumber}"
@@ -316,7 +316,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
             ModernCard(Modifier.fillMaxWidth().padding(top = 8.dp)) {
                 Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Поставок пока нет", fontWeight = FontWeight.Bold)
-                    Text("Создайте первую поставку для Ozon или Wildberries", color = MutedTextColor, textAlign = TextAlign.Center)
+                    Text("Создайте первую поставку для выбранного маркетплейса", color = MutedTextColor, textAlign = TextAlign.Center)
                 }
             }
         }

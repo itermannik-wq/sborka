@@ -3,10 +3,15 @@ package com.boldrex.postavki
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -44,6 +49,7 @@ import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.QrCodeScanner
@@ -74,6 +80,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -570,14 +577,34 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var marketplace by remember { mutableStateOf("Ozon") }
     var query by remember { mutableStateOf("") }
+    var newShipmentExpanded by remember { mutableStateOf(true) }
 
     Column(Modifier.fillMaxSize()) {
         ModernCard(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                val collapseRotation by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (newShipmentExpanded) 180f else 0f,
+                    animationSpec = spring(dampingRatio = 0.58f, stiffness = 520f),
+                    label = "new_shipment_collapse_rotation"
+                )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     AppIconBubble(Icons.Outlined.Inventory2, modifier = Modifier.size(42.dp))
-                    Text("Новая поставка", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor)
+                    Text("Новая поставка", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor, modifier = Modifier.weight(1f))
+                    IconButton(onClick = { newShipmentExpanded = !newShipmentExpanded }) {
+                        Icon(
+                            imageVector = Icons.Outlined.ExpandMore,
+                            contentDescription = if (newShipmentExpanded) "Свернуть" else "Развернуть",
+                            tint = AccentColor,
+                            modifier = Modifier.rotate(collapseRotation)
+                        )
+                    }
                 }
+                AnimatedVisibility(
+                    visible = newShipmentExpanded,
+                    enter = fadeIn(animationSpec = tween(260)) + slideInVertically(animationSpec = spring(dampingRatio = 0.68f, stiffness = 460f)) { -it / 5 } + expandVertically(animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)),
+                    exit = fadeOut(animationSpec = tween(170)) + slideOutVertically(animationSpec = tween(210)) { -it / 6 } + shrinkVertically(animationSpec = tween(220))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 ModernTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -614,6 +641,8 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                     }
                     AppIconActionButton(Icons.Outlined.Settings, "Настройки", onClick = vm::goSettings)
                 }
+                    }
+                }
             }
         }
 
@@ -646,16 +675,42 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
 
 @Composable
 private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val animatedBorder by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) AccentColor else CardBorderColor,
+        animationSpec = tween(260),
+        label = "marketplace_border"
+    )
+    val animatedContainer by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) Color(0xFFF2F7FF) else Color.White,
+        animationSpec = tween(260),
+        label = "marketplace_container"
+    )
+    val animatedDotBorder by androidx.compose.animation.animateColorAsState(
+        targetValue = if (selected) AccentColor else Color(0xFFAAB4C8),
+        animationSpec = tween(260),
+        label = "marketplace_dot_border"
+    )
+    val indicatorScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (selected) 1f else 0.65f,
+        animationSpec = spring(dampingRatio = 0.52f, stiffness = 650f),
+        label = "marketplace_indicator_scale"
+    )
+    val logoScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (selected) 1.04f else 0.96f,
+        animationSpec = tween(250),
+        label = "marketplace_logo_scale"
+    )
+
     OutlinedButton(
         onClick = onClick,
         modifier = modifier
             .defaultMinSize(minHeight = 44.dp)
             .heightIn(min = 44.dp),
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.3.dp, if (selected) AccentColor else CardBorderColor),
+        border = BorderStroke(1.3.dp, animatedBorder),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
         colors = ButtonDefaults.outlinedButtonColors(
-            containerColor = if (selected) Color(0xFFF6F9FF) else Color.White,
+            containerColor = animatedContainer,
             contentColor = if (selected) AccentColor else MutedTextColor
         )
     ) {
@@ -663,19 +718,31 @@ private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifi
             modifier = Modifier
                 .size(18.dp)
                 .clip(CircleShape)
-                .border(1.8.dp, if (selected) AccentColor else Color(0xFFAAB4C8), CircleShape),
+                .border(1.8.dp, animatedDotBorder, CircleShape),
             contentAlignment = Alignment.Center
         ) {
-            if (selected) Box(Modifier.size(8.dp).clip(CircleShape).background(AccentColor))
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .graphicsLayer {
+                        scaleX = indicatorScale
+                        scaleY = indicatorScale
+                        alpha = if (selected) 1f else 0f
+                    }
+                    .clip(CircleShape)
+                    .background(AccentColor)
+            )
         }
         Spacer(Modifier.width(8.dp))
-        MarketplaceLogo(
-            marketplace = title,
-            modifier = Modifier
-                .height(18.dp)
-                .width(marketplaceLogoWidth(title, 18)),
-            alpha = if (selected) 1f else 0.85f
-        )
+        Box(Modifier.graphicsLayer { scaleX = logoScale; scaleY = logoScale }) {
+            MarketplaceLogo(
+                marketplace = title,
+                modifier = Modifier
+                    .height(18.dp)
+                    .width(marketplaceLogoWidth(title, 18)),
+                alpha = if (selected) 1f else 0.82f
+            )
+        }
     }
 }
 

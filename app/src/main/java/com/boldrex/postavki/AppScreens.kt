@@ -21,6 +21,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,6 +53,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileDownload
@@ -86,6 +88,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -102,6 +105,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import java.time.LocalDate
 import kotlin.math.PI
 import kotlin.math.cos
@@ -1105,8 +1110,14 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
     var name by remember(state.pendingBarcode) { mutableStateOf("") }
     var barcode by remember(state.pendingBarcode) { mutableStateOf(state.pendingBarcode.orEmpty()) }
     var manualCreate by remember { mutableStateOf(false) }
+    var selectedItem by remember { mutableStateOf<BoxItemData?>(null) }
 
-    Column(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .blur(if (selectedItem != null) 3.dp else 0.dp)
+        ) {
         Row(
             Modifier
                 .fillMaxWidth()
@@ -1210,9 +1221,19 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
                 item { EmptyStateCard("В коробке пока нет товаров", "Отсканируйте товар или добавьте его вручную") }
             }
             items(state.boxItems, key = { it.id }) { item ->
-                BoxItemCard(item = item, onChangeQuantity = vm::changeItemQuantity)
+                BoxItemCard(
+                    item = item,
+                    onChangeQuantity = vm::changeItemQuantity,
+                    onOpenDetails = { selectedItem = it }
+                )
             }
         }
+        }
+
+        ProductDetailsBottomSheet(
+            item = selectedItem,
+            onDismiss = { selectedItem = null }
+        )
     }
 }
 
@@ -1238,9 +1259,12 @@ private fun ProductSearchRow(p: ProductSearchData, onAdd: () -> Unit) {
 }
 
 @Composable
-private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit) {
+private fun BoxItemCard(
+    item: BoxItemData,
+    onChangeQuantity: (Long, Int) -> Unit,
+    onOpenDetails: (BoxItemData) -> Unit
+) {
     var removing by remember(item.id) { mutableStateOf(false) }
-    var detailsOpen by remember(item.id) { mutableStateOf(false) }
     val progress = remember(item.id) { Animatable(0f) }
 
     LaunchedEffect(removing) {
@@ -1254,7 +1278,7 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
     ModernCard(
         Modifier
             .fillMaxWidth()
-            .clickable(enabled = !removing) { detailsOpen = true }
+            .clickable(enabled = !removing) { onOpenDetails(item) }
             .graphicsLayer {
                 alpha = 1f - (progress.value * 0.9f)
                 scaleX = 1f - (progress.value * 0.1f)
@@ -1328,50 +1352,244 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
                     }
                 }
                 if (removing) ParticleDissolveOverlay(progress = progress.value)
-                AnimatedVisibility(
-                    visible = detailsOpen,
-                    modifier = Modifier.fillMaxSize(),
-                    enter = fadeIn() + scaleIn(initialScale = 0.92f),
-                    exit = fadeOut() + scaleOut(targetScale = 0.92f)
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun ProductDetailsBottomSheet(
+    item: BoxItemData?,
+    onDismiss: () -> Unit
+) {
+    val visibleItem = item ?: return
+    val closeInteraction = remember { MutableInteractionSource() }
+    val sheetInteraction = remember { MutableInteractionSource() }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0x990B1226))
+                .clickable(
+                    interactionSource = closeInteraction,
+                    indication = null,
+                    onClick = onDismiss
+                ),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            AnimatedVisibility(
+                visible = true,
+                modifier = Modifier.align(Alignment.BottomCenter),
+                enter = fadeIn(animationSpec = tween(durationMillis = 170)) +
+                    slideInVertically(
+                        initialOffsetY = { it / 2 },
+                        animationSpec = spring()
+                    ) +
+                    scaleIn(
+                        initialScale = 0.96f,
+                        animationSpec = tween(durationMillis = 220)
+                    ),
+                exit = fadeOut(animationSpec = tween(durationMillis = 140)) +
+                    slideOutVertically(
+                        targetOffsetY = { it / 3 },
+                        animationSpec = tween(durationMillis = 180)
+                    ) +
+                    scaleOut(
+                        targetScale = 0.98f,
+                        animationSpec = tween(durationMillis = 140)
+                    )
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .clickable(
+                            interactionSource = sheetInteraction,
+                            indication = null,
+                            onClick = {}
+                        ),
+                    shape = RoundedCornerShape(30.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 18.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.85f))
                 ) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(Color(0xCC0B1226))
-                            .clickable { detailsOpen = false },
-                        contentAlignment = Alignment.Center
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.White, Color(0xFFF8FBFF))
+                                )
+                            )
+                            .padding(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        ModernCard(Modifier.padding(horizontal = 18.dp)) {
-                            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        AppIconBubble(Icons.Outlined.Inventory2, modifier = Modifier.size(36.dp))
-                                        Text("Карточка товара", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                                    }
-                                    AppIconActionButton(
-                                        icon = Icons.Outlined.Remove,
-                                        contentDescription = "Закрыть",
-                                        modifier = Modifier.size(34.dp),
-                                        onClick = { detailsOpen = false }
+                        Box(
+                            modifier = Modifier
+                                .width(58.dp)
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(Color(0xFFC3CAD7))
+                                .align(Alignment.CenterHorizontally)
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .clip(CircleShape)
+                                        .background(SoftBlueColor),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Inventory2,
+                                        contentDescription = null,
+                                        tint = AccentColor,
+                                        modifier = Modifier.size(27.dp)
                                     )
                                 }
-                                HorizontalDivider(color = CardBorderColor.copy(alpha = 0.8f))
-                                Text(item.article, color = AccentColor, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
-                                Text("Полное наименование", color = MutedTextColor, fontSize = 13.sp)
-                                Text(
-                                    item.name,
-                                    color = MainTextColor,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp,
-                                    lineHeight = 24.sp
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        "Карточка товара",
+                                        color = MainTextColor,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 20.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        "Проверка позиции в коробке",
+                                        color = MutedTextColor,
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            OutlinedIconButton(
+                                onClick = onDismiss,
+                                modifier = Modifier.size(46.dp),
+                                shape = CircleShape,
+                                border = BorderStroke(1.dp, CardBorderColor)
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Close,
+                                    contentDescription = "Закрыть",
+                                    tint = MainTextColor,
+                                    modifier = Modifier.size(22.dp)
                                 )
-                                MarketplaceBadge("Ozon", heightDp = 14)
-                                AppPrimaryButton("Закрыть", Modifier.fillMaxWidth(), onClick = { detailsOpen = false })
                             }
                         }
+
+                        HorizontalDivider(color = CardBorderColor.copy(alpha = 0.75f))
+
+                        ProductDetailInfoBlock(
+                            value = visibleItem.article,
+                            label = "Артикул",
+                            icon = Icons.Outlined.Inventory2
+                        )
+                        ProductDetailInfoBlock(
+                            value = visibleItem.name,
+                            label = "Полное наименование",
+                            icon = Icons.Outlined.Description
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            MarketplaceBadge("Ozon", heightDp = 15)
+                            Text(
+                                "Кол-во: ${visibleItem.quantity}",
+                                color = MutedTextColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+
+                        AppPrimaryButton(
+                            text = "Закрыть",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 54.dp),
+                            onClick = onDismiss
+                        )
                     }
                 }
             }
+        }
+    }
+}
+
+
+@Composable
+private fun ProductDetailInfoBlock(
+    value: String,
+    label: String,
+    icon: ImageVector
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                Brush.horizontalGradient(
+                    listOf(Color(0xFFF6F9FF), Color(0xFFEEF4FF).copy(alpha = 0.72f))
+                )
+            )
+            .border(1.dp, Color(0xFFE5ECF8), RoundedCornerShape(20.dp))
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(15.dp))
+                .background(Color(0xFFE6F0FF)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = AccentColor,
+                modifier = Modifier.size(23.dp)
+            )
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                value.ifBlank { "—" },
+                color = MainTextColor,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 21.sp,
+                lineHeight = 24.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                label,
+                color = MutedTextColor,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

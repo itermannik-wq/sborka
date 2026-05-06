@@ -10,6 +10,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -80,6 +81,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -277,6 +280,81 @@ private fun StatusBadge(
 
 private enum class BadgeTone { Blue, Green, Purple, Gray }
 
+
+private fun isWildberriesMarketplace(name: String): Boolean =
+    name.contains("wildberries", ignoreCase = true) || name.equals("wb", ignoreCase = true)
+
+private fun marketplaceLogoRes(name: String): Int =
+    if (isWildberriesMarketplace(name)) R.drawable.wildberries_logo else R.drawable.ozon_logo
+
+private fun marketplaceLogoWidth(name: String, heightDp: Int): androidx.compose.ui.unit.Dp =
+    if (isWildberriesMarketplace(name)) (heightDp * 4.4f).dp else (heightDp * 3.2f).dp
+
+@Composable
+private fun MarketplaceLogo(
+    marketplace: String,
+    modifier: Modifier = Modifier,
+    alpha: Float = 1f
+) {
+    Image(
+        painter = painterResource(id = marketplaceLogoRes(marketplace)),
+        contentDescription = marketplace,
+        modifier = modifier.alpha(alpha),
+        contentScale = ContentScale.Fit
+    )
+}
+
+@Composable
+private fun MarketplaceBadge(
+    marketplace: String,
+    modifier: Modifier = Modifier,
+    heightDp: Int = 16
+) {
+    Box(
+        modifier = modifier
+            .background(
+                color = if (isWildberriesMarketplace(marketplace)) Color(0xFFFCE7F3) else SoftBlueColor,
+                shape = RoundedCornerShape(999.dp)
+            )
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        MarketplaceLogo(
+            marketplace = marketplace,
+            modifier = Modifier
+                .height(heightDp.dp)
+                .width(marketplaceLogoWidth(marketplace, heightDp))
+        )
+    }
+}
+
+@Composable
+private fun MarketplaceMetaRow(
+    date: String,
+    marketplace: String,
+    cityCount: Int,
+    modifier: Modifier = Modifier,
+    fontSize: Int = 14
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Icon(Icons.Outlined.CalendarMonth, null, tint = MutedTextColor, modifier = Modifier.size(18.dp))
+        Text(date, color = MutedTextColor, fontSize = fontSize.sp, maxLines = 1)
+        Text("•", color = MutedTextColor)
+        MarketplaceLogo(
+            marketplace = marketplace,
+            modifier = Modifier
+                .height(15.dp)
+                .width(marketplaceLogoWidth(marketplace, 15))
+        )
+        Text("•", color = MutedTextColor)
+        Text("$cityCount город", color = MutedTextColor, fontSize = fontSize.sp, maxLines = 1)
+    }
+}
+
 @Composable
 private fun AppSectionTitle(text: String, modifier: Modifier = Modifier) {
     Text(
@@ -451,15 +529,28 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            val sub = when (state.screen) {
-                AppScreen.SHIPMENTS -> "Поставки • Ozon / Wildberries"
-                AppScreen.CITIES -> state.selectedShipmentTitle.ifBlank { "Поставка" }
-                AppScreen.BOXES -> state.selectedCityName.ifBlank { state.selectedShipmentTitle }
-                AppScreen.BOX -> listOf(state.selectedCityName, state.selectedBoxNumber).filter { it.isNotBlank() }.joinToString(" • ")
-                AppScreen.SCANNER -> "Сканер товара"
-                AppScreen.SETTINGS -> "Настройки и импорт"
+            if (state.screen == AppScreen.SHIPMENTS) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Text("Поставки", fontSize = 16.sp, color = MutedTextColor, maxLines = 1)
+                    Text("•", fontSize = 16.sp, color = MutedTextColor, maxLines = 1)
+                    MarketplaceLogo("Ozon", modifier = Modifier.height(15.dp).width(marketplaceLogoWidth("Ozon", 15)))
+                    Text("/", fontSize = 16.sp, color = MutedTextColor, maxLines = 1)
+                    MarketplaceLogo("Wildberries", modifier = Modifier.height(15.dp).width(marketplaceLogoWidth("Wildberries", 15)))
+                }
+            } else {
+                val sub = when (state.screen) {
+                    AppScreen.CITIES -> state.selectedShipmentTitle.ifBlank { "Поставка" }
+                    AppScreen.BOXES -> state.selectedCityName.ifBlank { state.selectedShipmentTitle }
+                    AppScreen.BOX -> listOf(state.selectedCityName, state.selectedBoxNumber).filter { it.isNotBlank() }.joinToString(" • ")
+                    AppScreen.SCANNER -> "Сканер товара"
+                    AppScreen.SETTINGS -> "Настройки и импорт"
+                    else -> ""
+                }
+                Text(sub, fontSize = 16.sp, color = MutedTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(sub, fontSize = 16.sp, color = MutedTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (isRoot) {
             IconButton(
@@ -548,7 +639,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
             if (filtered.isEmpty()) {
-                item { EmptyStateCard("Поставок пока нет", "Создайте первую поставку для Ozon или Wildberries") }
+                item { EmptyStateCard("Поставок пока нет", "Создайте первую поставку для выбранного маркетплейса") }
             }
             items(filtered, key = { it.id }) { item ->
                 ShipmentCard(item = item, vm = vm)
@@ -581,15 +672,13 @@ private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifi
         ) {
             if (selected) Box(Modifier.size(8.dp).clip(CircleShape).background(AccentColor))
         }
-        Spacer(Modifier.width(5.dp))
-        Text(
-            title,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 13.sp,
-            lineHeight = 15.sp,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+        Spacer(Modifier.width(8.dp))
+        MarketplaceLogo(
+            marketplace = title,
+            modifier = Modifier
+                .height(18.dp)
+                .width(marketplaceLogoWidth(title, 18)),
+            alpha = if (selected) 1f else 0.85f
         )
     }
 }
@@ -606,7 +695,12 @@ private fun ShipmentCard(item: ShipmentCardData, vm: AppViewModel) {
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(item.title, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${item.date} • ${item.marketplace} • ${item.cityCount} город", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            MarketplaceMetaRow(
+                                date = item.date,
+                                marketplace = item.marketplace,
+                                cityCount = item.cityCount,
+                                fontSize = 14
+                            )
                         }
                     }
                     StatusBadge(if (item.isArchived) "В архиве" else "Активна", tone = if (item.isArchived) BadgeTone.Gray else BadgeTone.Green)
@@ -616,14 +710,12 @@ private fun ShipmentCard(item: ShipmentCardData, vm: AppViewModel) {
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text(item.title, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                                Icon(Icons.Outlined.CalendarMonth, null, tint = MutedTextColor, modifier = Modifier.size(18.dp))
-                                Text(item.date, color = MutedTextColor, fontSize = 14.sp, maxLines = 1)
-                                Text("•", color = MutedTextColor)
-                                Text(item.marketplace, color = MutedTextColor, fontSize = 14.sp, maxLines = 1)
-                                Text("•", color = MutedTextColor)
-                                Text("${item.cityCount} город", color = MutedTextColor, fontSize = 14.sp, maxLines = 1)
-                            }
+                            MarketplaceMetaRow(
+                                date = item.date,
+                                marketplace = item.marketplace,
+                                cityCount = item.cityCount,
+                                fontSize = 14
+                            )
                         }
                         StatusBadge(if (item.isArchived) "В архиве" else "Активна", tone = if (item.isArchived) BadgeTone.Gray else BadgeTone.Green)
                     }
@@ -750,9 +842,14 @@ private fun ShipmentSummaryCard(item: ShipmentCardData) {
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(item.title, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${item.date} • ${item.marketplace} • ${item.cityCount} город", color = MutedTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    MarketplaceMetaRow(
+                        date = item.date,
+                        marketplace = item.marketplace,
+                        cityCount = item.cityCount,
+                        fontSize = 14
+                    )
                 }
-                StatusBadge(item.marketplace, tone = if (item.marketplace.equals("Wildberries", true)) BadgeTone.Purple else BadgeTone.Blue)
+                MarketplaceBadge(item.marketplace)
             }
             HorizontalDivider(color = CardBorderColor.copy(alpha = 0.7f))
             StatsRow(item.boxCount.toString(), "Коробки", item.itemCount.toString(), "Единицы", item.positionCount.toString(), "Позиций")
@@ -1089,7 +1186,7 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
                                 Text(item.article, fontWeight = FontWeight.ExtraBold, fontSize = 21.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("Код: ${item.barcode.orEmpty().ifBlank { item.article }}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("Название: ${item.name}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                StatusBadge("Ozon", tone = BadgeTone.Blue, modifier = Modifier.padding(top = 4.dp))
+                                MarketplaceBadge("Ozon", modifier = Modifier.padding(top = 4.dp), heightDp = 14)
                             }
                         }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1123,7 +1220,7 @@ private fun BoxItemCard(item: BoxItemData, onChangeQuantity: (Long, Int) -> Unit
                                 Text(item.article, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("Код: ${item.barcode.orEmpty().ifBlank { item.article }}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("Название: ${item.name}", color = MutedTextColor, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                StatusBadge("Ozon", tone = BadgeTone.Blue, modifier = Modifier.padding(top = 4.dp))
+                                MarketplaceBadge("Ozon", modifier = Modifier.padding(top = 4.dp), heightDp = 14)
                             }
                         }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

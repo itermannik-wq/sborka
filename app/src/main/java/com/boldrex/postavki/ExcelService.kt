@@ -58,32 +58,10 @@ object ExcelService {
             val boxCount = boxes.count { it.city == city }
             listOf(city, boxCount, list.size, list.sumOf { it.quantity })
         }
-        val productRows = rows.groupBy { Triple(it.article, it.productName, it.barcode.orEmpty()) }.map { (key, list) ->
-            listOf(key.first, key.second, key.third, list.sumOf { it.quantity }, list.map { it.boxNumber }.distinct().size, list.map { it.city }.distinct().joinToString(", "))
-        }.sortedBy { it[0].toString() }
-        val newProducts = rows.filter { it.isCreatedFromScan }.distinctBy { it.barcode ?: it.article }.map {
-            listOf(formatTime(it.productCreatedAt), it.article, it.productName, it.barcode.orEmpty(), "скан")
-        }
-
         val sheets = listOf(
-            Sheet("01_Сводка", listOf(
-                listOf("Показатель", "Значение"),
-                listOf("Название поставки", info.title),
-                listOf("Дата", info.date),
-                listOf("Маркетплейс", info.marketplace),
-                listOf("Количество городов", rows.map { it.city }.distinct().size),
-                listOf("Количество коробок", boxes.size),
-                listOf("SKU/артикулов", rows.map { it.article }.distinct().size),
-                listOf("Единиц товара", rows.sumOf { it.quantity }),
-                listOf("Дата формирования отчёта", formatTime(System.currentTimeMillis()))
-            ), autoFilter = false),
             Sheet("02_Города", listOf(listOf("Город", "Количество коробок", "Товарных позиций", "Единиц товара")) + cityRows, autoFilter = false),
-            Sheet("03_Коробки", listOf(listOf("Город", "Номер коробки", "Маркетплейс", "Количество позиций", "Количество единиц", "Комментарий")) +
-                boxes.map { listOf(it.city, it.boxNumber, it.marketplace, it.positionCount, it.itemCount, it.comment.orEmpty()) }, autoFilter = true),
-            Sheet("04_Состав_коробок", listOf(listOf("Маркетплейс", "Поставка", "Дата", "Город", "Номер коробки", "Артикул", "Название товара", "Штрихкод", "Количество")) +
-                rows.map { listOf(it.marketplace, it.shipment, it.shipmentDate, it.city, it.boxNumber, it.article, it.productName, it.barcode.orEmpty(), it.quantity) }, autoFilter = true),
-            Sheet("05_Товары", listOf(listOf("Артикул", "Название", "Штрихкод", "Общее количество", "Количество коробок", "Города")) + productRows, autoFilter = true),
-            Sheet("06_Новые_товары", listOf(listOf("Дата добавления", "Артикул", "Название", "Штрихкод", "Источник")) + newProducts, autoFilter = false)
+            Sheet("04_Состав_коробок", listOf(listOf("Город", "Номер коробки", "Название товара", "Количество", "Артикул")) +
+                rows.map { listOf(it.city, it.boxNumber, it.productName, it.quantity, it.article) }, autoFilter = true)
         )
 
         ZipOutputStream(file.outputStream()).use { zip ->

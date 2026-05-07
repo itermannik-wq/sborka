@@ -109,7 +109,7 @@ class ShipmentRepository(private val dao: AppDao) {
         if (old == null) {
             dao.insertBoxItem(BoxItemEntity(boxId = boxId, productId = productId, quantity = qty, addedAt = now()))
         } else {
-            dao.updateBoxItem(old.copy(quantity = old.quantity + qty))
+            dao.updateBoxItem(old.copy(quantity = old.quantity + qty, addedAt = now()))
         }
     }
 

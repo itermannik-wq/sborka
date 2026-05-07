@@ -225,7 +225,7 @@ interface AppDao {
         FROM box_items bi
         JOIN products p ON p.id = bi.productId
         WHERE bi.boxId = :boxId AND bi.quantity > 0
-        ORDER BY p.article, p.name
+        ORDER BY bi.addedAt DESC, bi.id DESC
     """)
     suspend fun listBoxItems(boxId: Long): List<BoxItemData>
 

@@ -59,6 +59,8 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Remove
@@ -84,6 +86,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1110,6 +1113,7 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
     var name by remember(state.pendingBarcode) { mutableStateOf("") }
     var barcode by remember(state.pendingBarcode) { mutableStateOf(state.pendingBarcode.orEmpty()) }
     var manualCreate by remember { mutableStateOf(false) }
+    var quickAddExpanded by rememberSaveable { mutableStateOf(true) }
     var selectedItem by remember { mutableStateOf<BoxItemData?>(null) }
 
     Box(Modifier.fillMaxSize()) {
@@ -1171,41 +1175,68 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
             BoxWithConstraints(Modifier.fillMaxWidth()) {
                 val compact = maxWidth < CompactScreenBreakpoint
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Быстрое добавление товаров", fontWeight = FontWeight.ExtraBold, fontSize = if (compact) 20.sp else 22.sp, color = MainTextColor, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (compact) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            ModernTextField(query, { query = it }, Modifier.fillMaxWidth(), label = "Артикул / название / код", placeholder = "333", leadingIcon = Icons.Outlined.Search)
-                            ModernTextField(qty, { qty = it }, Modifier.fillMaxWidth(), label = "Кол", placeholder = "1", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                        }
-                    } else {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ModernTextField(query, { query = it }, Modifier.weight(1f), label = "Артикул / название / код", placeholder = "333", leadingIcon = Icons.Outlined.Search)
-                            ModernTextField(qty, { qty = it }, Modifier.widthIn(min = 82.dp, max = 96.dp), label = "Кол", placeholder = "1", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                        }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .clickable { quickAddExpanded = !quickAddExpanded }
+                            .padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Быстрое добавление товаров", fontWeight = FontWeight.ExtraBold, fontSize = if (compact) 20.sp else 22.sp, color = MainTextColor, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Icon(
+                            imageVector = if (quickAddExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                            contentDescription = if (quickAddExpanded) "Свернуть" else "Развернуть",
+                            tint = MutedTextColor,
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .size(24.dp)
+                        )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        AppPrimaryButton("Найти", Modifier.weight(1f), Icons.Outlined.Search) { vm.searchProducts(query) }
-                        AppSecondaryButton("+ товар", Modifier.weight(1f), Icons.Outlined.Add) {
-                            barcode = query
-                            manualCreate = true
-                        }
-                    }
-                    AnimatedVisibility(visible = manualCreate && state.pendingBarcode == null, enter = fadeIn(), exit = fadeOut()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            ModernTextField(article, { article = it }, Modifier.fillMaxWidth(), label = "Артикул нового товара")
-                            ModernTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Название нового товара")
-                            ModernTextField(barcode, { barcode = it }, Modifier.fillMaxWidth(), label = "Штрихкод / код")
-                            AppPrimaryButton("Создать", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
-                                vm.createProductAndAdd(article, name, barcode, qty.toIntOrNull() ?: 1, fromScan = false)
-                                article = ""
-                                name = ""
-                                barcode = ""
-                                manualCreate = false
+
+                    AnimatedVisibility(
+                        visible = quickAddExpanded,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (compact) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    ModernTextField(query, { query = it }, Modifier.fillMaxWidth(), label = "Артикул / название / код", placeholder = "333", leadingIcon = Icons.Outlined.Search)
+                                    ModernTextField(qty, { qty = it }, Modifier.fillMaxWidth(), label = "Кол", placeholder = "1", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                }
+                            } else {
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    ModernTextField(query, { query = it }, Modifier.weight(1f), label = "Артикул / название / код", placeholder = "333", leadingIcon = Icons.Outlined.Search)
+                                    ModernTextField(qty, { qty = it }, Modifier.widthIn(min = 82.dp, max = 96.dp), label = "Кол", placeholder = "1", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                AppPrimaryButton("Найти", Modifier.weight(1f), Icons.Outlined.Search) { vm.searchProducts(query) }
+                                AppSecondaryButton("+ товар", Modifier.weight(1f), Icons.Outlined.Add) {
+                                    barcode = query
+                                    manualCreate = true
+                                }
+                            }
+                            AnimatedVisibility(visible = manualCreate && state.pendingBarcode == null, enter = fadeIn(), exit = fadeOut()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    ModernTextField(article, { article = it }, Modifier.fillMaxWidth(), label = "Артикул нового товара")
+                                    ModernTextField(name, { name = it }, Modifier.fillMaxWidth(), label = "Название нового товара")
+                                    ModernTextField(barcode, { barcode = it }, Modifier.fillMaxWidth(), label = "Штрихкод / код")
+                                    AppPrimaryButton("Создать", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
+                                        vm.createProductAndAdd(article, name, barcode, qty.toIntOrNull() ?: 1, fromScan = false)
+                                        article = ""
+                                        name = ""
+                                        barcode = ""
+                                        manualCreate = false
+                                    }
+                                }
+                            }
+                            state.productSearch.forEach { p ->
+                                ProductSearchRow(p = p, onAdd = { vm.addProductToCurrentBox(p.id, qty.toIntOrNull() ?: 1) })
                             }
                         }
-                    }
-                    state.productSearch.forEach { p ->
-                        ProductSearchRow(p = p, onAdd = { vm.addProductToCurrentBox(p.id, qty.toIntOrNull() ?: 1) })
                     }
                 }
             }

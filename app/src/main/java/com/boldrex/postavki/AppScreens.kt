@@ -1145,7 +1145,7 @@ private fun boxStatus(box: BoxCardData): Pair<String, BadgeTone> {
     return when {
         comment.contains("провер", ignoreCase = true) -> "Проверена" to BadgeTone.Green
         comment.contains("собран", ignoreCase = true) || comment.contains("готов", ignoreCase = true) -> "Собрана" to BadgeTone.Green
-        box.positionCount == 0L && box.itemCount == 0 -> "Пустая" to BadgeTone.Gray
+        box.positionCount.toLong() == 0L && box.itemCount.toLong() == 0L -> "Пустая" to BadgeTone.Gray
         else -> "В работе" to BadgeTone.Blue
     }
 }

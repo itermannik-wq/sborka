@@ -16,7 +16,9 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
-    private val repo = ShipmentRepository(LocalDatabase.get(application).dao())
+    private val repo: ShipmentRepository by lazy(LazyThreadSafetyMode.NONE) {
+        ShipmentRepository(LocalDatabase.get(getApplication()).dao())
+    }
     private val _state = MutableStateFlow(AppUiState())
     val state: StateFlow<AppUiState> = _state.asStateFlow()
 

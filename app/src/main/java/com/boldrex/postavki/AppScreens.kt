@@ -16,7 +16,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.using
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.spring
@@ -524,20 +524,20 @@ fun AppRoot(vm: AppViewModel) {
                 modifier = Modifier.weight(1f),
                 transitionSpec = {
                     val forward = screenLevel(targetState) >= screenLevel(initialState)
-                    (fadeIn(animationSpec = tween(220)) +
-                        slideInHorizontally(
-                            initialOffsetX = { fullWidth -> if (forward) fullWidth / 4 else -fullWidth / 4 },
-                            animationSpec = tween(300)
-                        ) +
-                        scaleIn(initialScale = 0.985f, animationSpec = tween(300)))
-                        .togetherWith(
-                            fadeOut(animationSpec = tween(180)) +
-                                slideOutHorizontally(
-                                    targetOffsetX = { fullWidth -> if (forward) -fullWidth / 6 else fullWidth / 6 },
-                                    animationSpec = tween(240)
-                                )
-                        )
-                        .using(SizeTransform(clip = false))
+                    ContentTransform(
+                        targetContentEnter = fadeIn(animationSpec = tween(220)) +
+                            slideInHorizontally(
+                                initialOffsetX = { fullWidth -> if (forward) fullWidth / 4 else -fullWidth / 4 },
+                                animationSpec = tween(300)
+                            ) +
+                            scaleIn(initialScale = 0.985f, animationSpec = tween(300)),
+                        initialContentExit = fadeOut(animationSpec = tween(180)) +
+                            slideOutHorizontally(
+                                targetOffsetX = { fullWidth -> if (forward) -fullWidth / 6 else fullWidth / 6 },
+                                animationSpec = tween(240)
+                            ),
+                        sizeTransform = SizeTransform(clip = false)
+                    )
                 },
                 label = "screen_transition"
             ) { screen ->
@@ -1882,10 +1882,18 @@ private fun AnimatedQuantity(value: Int, modifier: Modifier = Modifier) {
         modifier = modifier,
         transitionSpec = {
             if (targetState > initialState) {
-                slideInVertically { it / 2 } + fadeIn() togetherWith slideOutVertically { -it / 2 } + fadeOut()
+                ContentTransform(
+                    targetContentEnter = slideInVertically { it / 2 } + fadeIn(),
+                    initialContentExit = slideOutVertically { -it / 2 } + fadeOut(),
+                    sizeTransform = SizeTransform(clip = false)
+                )
             } else {
-                slideInVertically { -it / 2 } + fadeIn() togetherWith slideOutVertically { it / 2 } + fadeOut()
-            }.using(SizeTransform(clip = false))
+                ContentTransform(
+                    targetContentEnter = slideInVertically { -it / 2 } + fadeIn(),
+                    initialContentExit = slideOutVertically { it / 2 } + fadeOut(),
+                    sizeTransform = SizeTransform(clip = false)
+                )
+            }
         },
         label = "quantity_change"
     ) { target ->

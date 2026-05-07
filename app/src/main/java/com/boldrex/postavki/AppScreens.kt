@@ -59,8 +59,6 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Inventory2
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Remove
@@ -111,6 +109,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import java.time.LocalDate
+import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -480,6 +479,12 @@ fun AppRoot(vm: AppViewModel) {
                 AppScreen.SETTINGS -> SettingsScreen(state, vm)
             }
         }
+        LaunchedEffect(state.message) {
+            if (state.message != null) {
+                delay(3_000)
+                vm.clearMessage()
+            }
+        }
         AnimatedVisibility(
             visible = state.message != null,
             modifier = Modifier
@@ -610,7 +615,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var marketplace by remember { mutableStateOf("Ozon") }
     var query by remember { mutableStateOf("") }
-    var newShipmentExpanded by remember { mutableStateOf(true) }
+    var newShipmentExpanded by rememberSaveable { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
         ModernCard(Modifier.fillMaxWidth()) {
@@ -1113,7 +1118,7 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
     var name by remember(state.pendingBarcode) { mutableStateOf("") }
     var barcode by remember(state.pendingBarcode) { mutableStateOf(state.pendingBarcode.orEmpty()) }
     var manualCreate by remember { mutableStateOf(false) }
-    var quickAddExpanded by rememberSaveable { mutableStateOf(true) }
+    var quickAddExpanded by rememberSaveable { mutableStateOf(false) }
     var selectedItem by remember { mutableStateOf<BoxItemData?>(null) }
 
     Box(Modifier.fillMaxSize()) {
@@ -1185,20 +1190,26 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Быстрое добавление товаров", fontWeight = FontWeight.ExtraBold, fontSize = if (compact) 20.sp else 22.sp, color = MainTextColor, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        val collapseRotation by androidx.compose.animation.core.animateFloatAsState(
+                            targetValue = if (quickAddExpanded) 180f else 0f,
+                            animationSpec = spring(dampingRatio = 0.58f, stiffness = 520f),
+                            label = "quick_add_collapse_rotation"
+                        )
                         Icon(
-                            imageVector = if (quickAddExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                            imageVector = Icons.Outlined.ExpandMore,
                             contentDescription = if (quickAddExpanded) "Свернуть" else "Развернуть",
-                            tint = MutedTextColor,
+                            tint = AccentColor,
                             modifier = Modifier
                                 .padding(start = 8.dp)
                                 .size(24.dp)
+                                .rotate(collapseRotation)
                         )
                     }
 
                     AnimatedVisibility(
                         visible = quickAddExpanded,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically()
+                        enter = fadeIn(animationSpec = tween(260)) + slideInVertically(animationSpec = spring(dampingRatio = 0.68f, stiffness = 460f)) { -it / 5 } + expandVertically(animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)),
+                        exit = fadeOut(animationSpec = tween(170)) + slideOutVertically(animationSpec = tween(210)) { -it / 6 } + shrinkVertically(animationSpec = tween(220))
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (compact) {
@@ -1608,9 +1619,9 @@ private fun ProductDetailInfoBlock(
                 value.ifBlank { "—" },
                 color = MainTextColor,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 21.sp,
-                lineHeight = 24.sp,
-                maxLines = 2,
+                fontSize = if (label == "Полное наименование") 18.sp else 21.sp,
+                lineHeight = if (label == "Полное наименование") 22.sp else 24.sp,
+                maxLines = if (label == "Полное наименование") 4 else 2,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(3.dp))

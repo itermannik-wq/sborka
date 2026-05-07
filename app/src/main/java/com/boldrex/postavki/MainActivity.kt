@@ -45,13 +45,24 @@ private fun AppTheme(content: @Composable () -> Unit) {
 }
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val ACTION_NEW_SHIPMENT = "com.boldrex.postavki.action.NEW_SHIPMENT"
+        const val ACTION_IMPORT_REPORTS = "com.boldrex.postavki.action.IMPORT_REPORTS"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             AppTheme {
                 val vm: AppViewModel = viewModel(factory = AppViewModel.factory(application))
+                vm.handleLauncherShortcut(intent?.action)
                 AppRoot(vm)
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
     }
 }

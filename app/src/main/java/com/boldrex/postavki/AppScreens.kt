@@ -877,6 +877,15 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
     var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var newShipmentExpanded by rememberSaveable { mutableStateOf(false) }
 
+    LaunchedEffect(state.openNewShipmentForm) {
+        if (state.openNewShipmentForm) {
+            newShipmentExpanded = true
+            menuExpanded = false
+            searchExpanded = false
+            vm.consumeNewShipmentShortcut()
+        }
+    }
+
     val filtered = state.shipments.filter {
         query.isBlank() || it.title.contains(query, true) || it.marketplace.contains(query, true) || it.date.contains(query, true)
     }

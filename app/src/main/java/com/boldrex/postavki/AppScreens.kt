@@ -14,7 +14,6 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.using
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.spring
@@ -1146,7 +1145,7 @@ private fun boxStatus(box: BoxCardData): Pair<String, BadgeTone> {
     return when {
         comment.contains("провер", ignoreCase = true) -> "Проверена" to BadgeTone.Green
         comment.contains("собран", ignoreCase = true) || comment.contains("готов", ignoreCase = true) -> "Собрана" to BadgeTone.Green
-        box.positionCount == 0 && box.itemCount == 0 -> "Пустая" to BadgeTone.Gray
+        box.positionCount == 0L && box.itemCount == 0 -> "Пустая" to BadgeTone.Gray
         else -> "В работе" to BadgeTone.Blue
     }
 }

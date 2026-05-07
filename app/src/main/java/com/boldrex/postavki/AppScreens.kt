@@ -676,7 +676,15 @@ private fun SearchField(
 @Composable
 fun AppRoot(vm: AppViewModel) {
     val state by vm.state.collectAsState()
+    val showStartupLoader = state.isBusy && state.shipments.isEmpty() && state.screen == AppScreen.SHIPMENTS
     Box(Modifier.fillMaxSize().background(AppBackgroundGradient)) {
+        if (showStartupLoader) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = AccentColor, strokeWidth = 3.dp, modifier = Modifier.size(32.dp))
+            }
+            return@Box
+        }
+
         Column(
             Modifier
                 .fillMaxSize()

@@ -437,6 +437,170 @@ private fun DockHandle() {
 
 
 @Composable
+private fun FloatingBottomMenu(
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(animationSpec = tween(170)) +
+                slideInVertically(animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f)) { it / 5 } +
+                scaleIn(initialScale = 0.92f, animationSpec = spring(dampingRatio = 0.74f, stiffness = 560f)),
+            exit = fadeOut(animationSpec = tween(130)) +
+                slideOutVertically(animationSpec = tween(160)) { it / 6 } +
+                scaleOut(targetScale = 0.94f, animationSpec = tween(130))
+        ) {
+            Column(
+                modifier = Modifier.widthIn(max = 330.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                content = content
+            )
+        }
+
+        val fabScale by androidx.compose.animation.core.animateFloatAsState(
+            targetValue = if (expanded) 1.04f else 1f,
+            animationSpec = spring(dampingRatio = 0.62f, stiffness = 520f),
+            label = "floating_menu_fab_scale"
+        )
+        val iconRotation by androidx.compose.animation.core.animateFloatAsState(
+            targetValue = if (expanded) 90f else 0f,
+            animationSpec = spring(dampingRatio = 0.58f, stiffness = 600f),
+            label = "floating_menu_icon_rotation"
+        )
+
+        Button(
+            onClick = { onExpandedChange(!expanded) },
+            modifier = Modifier
+                .size(58.dp)
+                .graphicsLayer {
+                    scaleX = fabScale
+                    scaleY = fabScale
+                }
+                .shadow(
+                    elevation = 18.dp,
+                    shape = CircleShape,
+                    ambientColor = AccentColor.copy(alpha = 0.20f),
+                    spotColor = AccentColor.copy(alpha = 0.32f)
+                ),
+            shape = CircleShape,
+            contentPadding = PaddingValues(0.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+        ) {
+            Icon(
+                imageVector = if (expanded) Icons.Outlined.Close else Icons.Outlined.Add,
+                contentDescription = if (expanded) "Свернуть меню" else "Открыть меню",
+                modifier = Modifier
+                    .size(if (expanded) 28.dp else 30.dp)
+                    .rotate(iconRotation)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FloatingMenuAction(
+    title: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    ModernCard(
+        modifier = modifier
+            .widthIn(min = 236.dp, max = 318.dp)
+            .clip(RoundedCornerShape(22.dp))
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 56.dp)
+                .padding(start = 16.dp, top = 7.dp, end = 7.dp, bottom = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                color = MainTextColor,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .border(1.dp, CardBorderColor.copy(alpha = 0.58f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = AccentColor, modifier = Modifier.size(23.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun FloatingMenuPanel(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    ModernCard(
+        modifier = modifier
+            .widthIn(min = 278.dp, max = 330.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun FloatingSearchInput(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier.heightIn(min = 54.dp),
+        singleLine = true,
+        placeholder = {
+            Text(placeholder, color = SoftTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        leadingIcon = {
+            Icon(Icons.Outlined.Search, contentDescription = null, tint = MutedTextColor)
+        },
+        shape = RoundedCornerShape(18.dp),
+        colors = TextFieldDefaults.colors(
+            focusedTextColor = MainTextColor,
+            unfocusedTextColor = MainTextColor,
+            focusedContainerColor = InputContainerColor,
+            unfocusedContainerColor = InputContainerColor,
+            disabledContainerColor = InputContainerColor,
+            focusedIndicatorColor = AccentColor,
+            unfocusedIndicatorColor = CardBorderColor,
+            cursorColor = AccentColor
+        )
+    )
+}
+
+@Composable
 private fun ModernTextField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -701,6 +865,8 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var marketplace by remember { mutableStateOf("Ozon") }
     var query by remember { mutableStateOf("") }
+    var menuExpanded by rememberSaveable { mutableStateOf(false) }
+    var searchExpanded by rememberSaveable { mutableStateOf(false) }
     var newShipmentExpanded by rememberSaveable { mutableStateOf(false) }
 
     val filtered = state.shipments.filter {
@@ -715,10 +881,15 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
             LazyColumn(
                 Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 154.dp)
+                contentPadding = PaddingValues(bottom = 92.dp)
             ) {
                 if (filtered.isEmpty()) {
-                    item { EmptyStateCard("Поставок пока нет", "Создайте первую поставку для выбранного маркетплейса") }
+                    item {
+                        EmptyStateCard(
+                            if (state.shipments.isEmpty()) "Поставок пока нет" else "Ничего не найдено",
+                            if (state.shipments.isEmpty()) "Создайте первую поставку для выбранного маркетплейса" else "Попробуйте изменить текст поиска"
+                        )
+                    }
                 }
                 items(filtered, key = { it.id }) { item ->
                     ShipmentCard(item = item, vm = vm)
@@ -726,52 +897,42 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
             }
         }
 
-        BottomDockSurface(modifier = Modifier.align(Alignment.BottomCenter)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                DockHandle()
-            }
-            SearchField(
-                query = query,
-                onQueryChange = { query = it },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .clickable { newShipmentExpanded = !newShipmentExpanded },
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                AppIconBubble(Icons.Outlined.Add, modifier = Modifier.size(42.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Новая поставка", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = MainTextColor)
-                    Text("Создать поставку, дату и маркетплейс", color = MutedTextColor, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        FloatingBottomMenu(
+            expanded = menuExpanded,
+            onExpandedChange = { expanded ->
+                menuExpanded = expanded
+                if (!expanded) {
+                    searchExpanded = false
+                    newShipmentExpanded = false
                 }
-                val collapseRotation by androidx.compose.animation.core.animateFloatAsState(
-                    targetValue = if (newShipmentExpanded) 180f else 0f,
-                    animationSpec = spring(dampingRatio = 0.58f, stiffness = 520f),
-                    label = "new_shipment_collapse_rotation"
-                )
-                Icon(
-                    imageVector = Icons.Outlined.ExpandMore,
-                    contentDescription = if (newShipmentExpanded) "Свернуть" else "Развернуть",
-                    tint = AccentColor,
-                    modifier = Modifier.rotate(collapseRotation)
-                )
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 12.dp, bottom = 16.dp)
+        ) {
+            AnimatedVisibility(
+                visible = searchExpanded,
+                enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = spring(dampingRatio = 0.76f, stiffness = 520f)),
+                exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(animationSpec = tween(160))
+            ) {
+                FloatingMenuPanel {
+                    Text("Поиск поставки", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                    FloatingSearchInput(
+                        value = query,
+                        onValueChange = { query = it },
+                        placeholder = "Название / дата / маркетплейс",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
 
             AnimatedVisibility(
                 visible = newShipmentExpanded,
-                enter = fadeIn(animationSpec = tween(260)) +
-                    slideInVertically(animationSpec = spring(dampingRatio = 0.68f, stiffness = 460f)) { it / 5 } +
-                    expandVertically(animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)),
-                exit = fadeOut(animationSpec = tween(170)) +
-                    slideOutVertically(animationSpec = tween(210)) { it / 6 } +
-                    shrinkVertically(animationSpec = tween(220))
+                enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = spring(dampingRatio = 0.76f, stiffness = 520f)),
+                exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(animationSpec = tween(160))
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                FloatingMenuPanel {
+                    Text("Новая поставка", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                     ModernTextField(
                         value = title,
                         onValueChange = { title = it },
@@ -801,12 +962,30 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
                             onClick = { marketplace = "Wildberries" }
                         )
                     }
-                    AppPrimaryButton("Создать поставку", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
+                    AppPrimaryButton("Создать", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
                         vm.createShipment(title, date, marketplace)
                         title = ""
                         newShipmentExpanded = false
+                        menuExpanded = false
                     }
                 }
+            }
+
+            FloatingMenuAction("Поиск поставок", Icons.Outlined.Search) {
+                searchExpanded = !searchExpanded
+                newShipmentExpanded = false
+                menuExpanded = true
+            }
+            FloatingMenuAction("Новая поставка", Icons.Outlined.Add) {
+                newShipmentExpanded = !newShipmentExpanded
+                searchExpanded = false
+                menuExpanded = true
+            }
+            FloatingMenuAction("Импорт / отчёты", Icons.Outlined.FileDownload) {
+                searchExpanded = false
+                newShipmentExpanded = false
+                menuExpanded = false
+                vm.goSettings()
             }
         }
     }
@@ -1052,7 +1231,15 @@ private fun StatItem(icon: ImageVector, value: String, label: String, modifier: 
 @Composable
 private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
     var city by remember { mutableStateOf("") }
+    var cityQuery by remember { mutableStateOf("") }
+    var menuExpanded by rememberSaveable { mutableStateOf(false) }
+    var searchExpanded by rememberSaveable { mutableStateOf(false) }
+    var addExpanded by rememberSaveable { mutableStateOf(false) }
+    var exportExpanded by rememberSaveable { mutableStateOf(false) }
     val shipment = state.shipments.firstOrNull { it.id == state.selectedShipmentId }
+    val filteredCities = state.shipmentCities.filter {
+        cityQuery.isBlank() || it.cityName.contains(cityQuery, ignoreCase = true)
+    }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -1064,47 +1251,119 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
             LazyColumn(
                 Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 148.dp)
+                contentPadding = PaddingValues(bottom = 92.dp)
             ) {
-                if (state.shipmentCities.isEmpty()) {
-                    item { EmptyStateCard("Города пока не добавлены", "Добавьте город или направление для сборки коробок") }
+                when {
+                    state.shipmentCities.isEmpty() -> {
+                        item { EmptyStateCard("Города пока не добавлены", "Добавьте город или направление для сборки коробок") }
+                    }
+                    filteredCities.isEmpty() -> {
+                        item { EmptyStateCard("Ничего не найдено", "Попробуйте изменить город или направление в поиске") }
+                    }
                 }
-                items(state.shipmentCities, key = { it.id }) { item ->
+                items(filteredCities, key = { it.id }) { item ->
                     CityCard(item = item, onOpen = { vm.openCity(item.id) })
                 }
             }
         }
 
-        BottomDockSurface(modifier = Modifier.align(Alignment.BottomCenter)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                DockHandle()
-            }
-            Text("Направления", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+        FloatingBottomMenu(
+            expanded = menuExpanded,
+            onExpandedChange = { expanded ->
+                menuExpanded = expanded
+                if (!expanded) {
+                    searchExpanded = false
+                    addExpanded = false
+                    exportExpanded = false
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 12.dp, bottom = 16.dp)
+        ) {
+            AnimatedVisibility(
+                visible = searchExpanded,
+                enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = spring(dampingRatio = 0.76f, stiffness = 520f)),
+                exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(animationSpec = tween(160))
             ) {
-                ModernTextField(
-                    city,
-                    { city = it },
-                    Modifier.weight(1f),
-                    label = "Город / направление",
-                    placeholder = "Москва, СПБ, Казань",
-                    leadingIcon = Icons.Outlined.Search
-                )
-                AppIconActionButton(Icons.Outlined.Add, "Добавить", primary = true) {
-                    vm.addCity(city)
-                    city = ""
+                FloatingMenuPanel {
+                    Text("Поиск направления", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                    FloatingSearchInput(
+                        value = cityQuery,
+                        onValueChange = { cityQuery = it },
+                        placeholder = "Город / направление",
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+
+            AnimatedVisibility(
+                visible = addExpanded,
+                enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = spring(dampingRatio = 0.76f, stiffness = 520f)),
+                exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(animationSpec = tween(160))
             ) {
-                AppPrimaryButton("Excel", Modifier.weight(1f), Icons.Outlined.Description) { vm.generateExcel() }
-                AppSecondaryButton("CSV", Modifier.widthIn(min = 86.dp, max = 98.dp), Icons.Outlined.FileDownload) { vm.exportCsv() }
+                FloatingMenuPanel {
+                    Text("Новое направление", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                    ModernTextField(
+                        city,
+                        { city = it },
+                        Modifier.fillMaxWidth(),
+                        label = "Город / направление",
+                        placeholder = "Москва, СПБ, Казань",
+                        leadingIcon = Icons.Outlined.Search
+                    )
+                    AppPrimaryButton("Добавить", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
+                        vm.addCity(city)
+                        city = ""
+                        addExpanded = false
+                        menuExpanded = false
+                    }
+                }
+            }
+
+            AnimatedVisibility(
+                visible = exportExpanded,
+                enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = spring(dampingRatio = 0.76f, stiffness = 520f)),
+                exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(animationSpec = tween(160))
+            ) {
+                FloatingMenuPanel {
+                    Text("Экспорт", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AppPrimaryButton("Excel", Modifier.weight(1f), Icons.Outlined.Description) {
+                            vm.generateExcel()
+                            exportExpanded = false
+                            menuExpanded = false
+                        }
+                        AppSecondaryButton("CSV", Modifier.weight(1f), Icons.Outlined.FileDownload) {
+                            vm.exportCsv()
+                            exportExpanded = false
+                            menuExpanded = false
+                        }
+                    }
+                }
+            }
+
+            FloatingMenuAction("Поиск города", Icons.Outlined.Search) {
+                searchExpanded = !searchExpanded
+                addExpanded = false
+                exportExpanded = false
+                menuExpanded = true
+            }
+            FloatingMenuAction("Добавить направление", Icons.Outlined.Add) {
+                addExpanded = !addExpanded
+                searchExpanded = false
+                exportExpanded = false
+                menuExpanded = true
+            }
+            FloatingMenuAction("Экспорт / Импорт", Icons.Outlined.FileDownload) {
+                exportExpanded = !exportExpanded
+                searchExpanded = false
+                addExpanded = false
+                menuExpanded = true
             }
         }
     }

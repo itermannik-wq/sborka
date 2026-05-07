@@ -6,11 +6,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
@@ -188,7 +190,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _state.update { it.copy(isBusy = true, message = null) }
             try {
-                block()
+                withContext(Dispatchers.IO) {
+                    block()
+                }
             } catch (t: Throwable) {
                 _state.update { it.copy(message = t.message ?: "Ошибка") }
             } finally {

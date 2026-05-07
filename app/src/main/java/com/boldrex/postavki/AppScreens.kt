@@ -10,10 +10,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.using
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.spring
@@ -92,6 +95,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -242,12 +246,18 @@ private fun ModernCard(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val shape = RoundedCornerShape(24.dp)
     Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
+        modifier = modifier.shadow(
+            elevation = 14.dp,
+            shape = shape,
+            ambientColor = Color(0x120B1226),
+            spotColor = Color(0x180B1226)
+        ),
+        shape = shape,
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, CardBorderColor.copy(alpha = 0.75f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        border = BorderStroke(1.dp, CardBorderColor.copy(alpha = 0.82f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         content = { content() }
     )
 }
@@ -385,6 +395,47 @@ private fun AppSectionTitle(modifier: Modifier = Modifier) {
     )
 }
 
+private fun screenLevel(screen: AppScreen): Int = when (screen) {
+    AppScreen.SHIPMENTS -> 0
+    AppScreen.CITIES -> 1
+    AppScreen.BOXES -> 2
+    AppScreen.BOX -> 3
+    AppScreen.SCANNER -> 4
+    AppScreen.SETTINGS -> 1
+}
+
+@Composable
+private fun BottomDockSurface(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    ModernCard(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp, vertical = 6.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun DockHandle() {
+    Box(
+        modifier = Modifier
+            .width(42.dp)
+            .height(5.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(CardBorderColor.copy(alpha = 0.95f))
+    )
+}
+
+
 @Composable
 private fun ModernTextField(
     value: String,
@@ -468,16 +519,39 @@ fun AppRoot(vm: AppViewModel) {
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Header(state, vm)
-            when (state.screen) {
-                AppScreen.SHIPMENTS -> ShipmentsScreen(state, vm)
-                AppScreen.CITIES -> CitiesScreen(state, vm)
-                AppScreen.BOXES -> BoxesScreen(state, vm)
-                AppScreen.BOX -> BoxScreen(state, vm)
-                AppScreen.SCANNER -> BarcodeScannerScreen(
-                    onCodeScanned = vm::handleScan,
-                    onClose = { state.selectedBoxId?.let(vm::openBox) ?: vm.goShipments() }
-                )
-                AppScreen.SETTINGS -> SettingsScreen(state, vm)
+            AnimatedContent(
+                targetState = state.screen,
+                modifier = Modifier.weight(1f),
+                transitionSpec = {
+                    val forward = screenLevel(targetState) >= screenLevel(initialState)
+                    (fadeIn(animationSpec = tween(220)) +
+                        slideInHorizontally(
+                            initialOffsetX = { fullWidth -> if (forward) fullWidth / 4 else -fullWidth / 4 },
+                            animationSpec = tween(300)
+                        ) +
+                        scaleIn(initialScale = 0.985f, animationSpec = tween(300)))
+                        .togetherWith(
+                            fadeOut(animationSpec = tween(180)) +
+                                slideOutHorizontally(
+                                    targetOffsetX = { fullWidth -> if (forward) -fullWidth / 6 else fullWidth / 6 },
+                                    animationSpec = tween(240)
+                                )
+                        )
+                        .using(SizeTransform(clip = false))
+                },
+                label = "screen_transition"
+            ) { screen ->
+                when (screen) {
+                    AppScreen.SHIPMENTS -> ShipmentsScreen(state, vm)
+                    AppScreen.CITIES -> CitiesScreen(state, vm)
+                    AppScreen.BOXES -> BoxesScreen(state, vm)
+                    AppScreen.BOX -> BoxScreen(state, vm)
+                    AppScreen.SCANNER -> BarcodeScannerScreen(
+                        onCodeScanned = vm::handleScan,
+                        onClose = { state.selectedBoxId?.let(vm::openBox) ?: vm.goShipments() }
+                    )
+                    AppScreen.SETTINGS -> SettingsScreen(state, vm)
+                }
             }
         }
         LaunchedEffect(state.message) {
@@ -633,100 +707,106 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
         query.isBlank() || it.title.contains(query, true) || it.marketplace.contains(query, true) || it.date.contains(query, true)
     }
 
-    Column(Modifier.fillMaxSize()) {
-        ShipmentsDashboard(state)
-        Spacer(Modifier.height(12.dp))
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            ShipmentsDashboard(state)
+            Spacer(Modifier.height(12.dp))
 
-        ModernCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 154.dp)
+            ) {
+                if (filtered.isEmpty()) {
+                    item { EmptyStateCard("Поставок пока нет", "Создайте первую поставку для выбранного маркетплейса") }
+                }
+                items(filtered, key = { it.id }) { item ->
+                    ShipmentCard(item = item, vm = vm)
+                }
+            }
+        }
+
+        BottomDockSurface(modifier = Modifier.align(Alignment.BottomCenter)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                DockHandle()
+            }
+            SearchField(
+                query = query,
+                onQueryChange = { query = it },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { newShipmentExpanded = !newShipmentExpanded },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                AppIconBubble(Icons.Outlined.Add, modifier = Modifier.size(42.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Новая поставка", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp, color = MainTextColor)
+                    Text("Создать поставку, дату и маркетплейс", color = MutedTextColor, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 val collapseRotation by androidx.compose.animation.core.animateFloatAsState(
                     targetValue = if (newShipmentExpanded) 180f else 0f,
                     animationSpec = spring(dampingRatio = 0.58f, stiffness = 520f),
                     label = "new_shipment_collapse_rotation"
                 )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable { newShipmentExpanded = !newShipmentExpanded },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    AppIconBubble(Icons.Outlined.Add, modifier = Modifier.size(42.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Новая поставка", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = MainTextColor)
-                        Text("Создать дату, маркетплейс и направления", color = MutedTextColor, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Icon(
-                        imageVector = Icons.Outlined.ExpandMore,
-                        contentDescription = if (newShipmentExpanded) "Свернуть" else "Развернуть",
-                        tint = AccentColor,
-                        modifier = Modifier.rotate(collapseRotation)
+                Icon(
+                    imageVector = Icons.Outlined.ExpandMore,
+                    contentDescription = if (newShipmentExpanded) "Свернуть" else "Развернуть",
+                    tint = AccentColor,
+                    modifier = Modifier.rotate(collapseRotation)
+                )
+            }
+
+            AnimatedVisibility(
+                visible = newShipmentExpanded,
+                enter = fadeIn(animationSpec = tween(260)) +
+                    slideInVertically(animationSpec = spring(dampingRatio = 0.68f, stiffness = 460f)) { it / 5 } +
+                    expandVertically(animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)),
+                exit = fadeOut(animationSpec = tween(170)) +
+                    slideOutVertically(animationSpec = tween(210)) { it / 6 } +
+                    shrinkVertically(animationSpec = tween(220))
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    ModernTextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = "Название",
+                        placeholder = "Например: Поставка 07.05"
                     )
-                }
-                AnimatedVisibility(
-                    visible = newShipmentExpanded,
-                    enter = fadeIn(animationSpec = tween(260)) + slideInVertically(animationSpec = spring(dampingRatio = 0.68f, stiffness = 460f)) { -it / 5 } + expandVertically(animationSpec = spring(dampingRatio = 0.7f, stiffness = 500f)),
-                    exit = fadeOut(animationSpec = tween(170)) + slideOutVertically(animationSpec = tween(210)) { -it / 6 } + shrinkVertically(animationSpec = tween(220))
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        ModernTextField(
-                            value = title,
-                            onValueChange = { title = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = "Название",
-                            placeholder = "Например: Поставка 07.05"
+                    ModernTextField(
+                        value = date,
+                        onValueChange = { date = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = "Дата",
+                        placeholder = "2026-05-07",
+                        leadingIcon = Icons.Outlined.CalendarMonth
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        MarketplaceButton(
+                            title = "Ozon",
+                            selected = marketplace == "Ozon",
+                            modifier = Modifier.weight(1f),
+                            onClick = { marketplace = "Ozon" }
                         )
-                        ModernTextField(
-                            value = date,
-                            onValueChange = { date = it },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = "Дата",
-                            placeholder = "2026-05-07",
-                            leadingIcon = Icons.Outlined.CalendarMonth
+                        MarketplaceButton(
+                            title = "Wildberries",
+                            selected = marketplace == "Wildberries",
+                            modifier = Modifier.weight(1f),
+                            onClick = { marketplace = "Wildberries" }
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            MarketplaceButton(
-                                title = "Ozon",
-                                selected = marketplace == "Ozon",
-                                modifier = Modifier.weight(1f),
-                                onClick = { marketplace = "Ozon" }
-                            )
-                            MarketplaceButton(
-                                title = "Wildberries",
-                                selected = marketplace == "Wildberries",
-                                modifier = Modifier.weight(1f),
-                                onClick = { marketplace = "Wildberries" }
-                            )
-                        }
-                        AppPrimaryButton("Создать поставку", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
-                            vm.createShipment(title, date, marketplace)
-                            title = ""
-                            newShipmentExpanded = false
-                        }
+                    }
+                    AppPrimaryButton("Создать поставку", Modifier.fillMaxWidth(), Icons.Outlined.Add) {
+                        vm.createShipment(title, date, marketplace)
+                        title = ""
+                        newShipmentExpanded = false
                     }
                 }
-            }
-        }
-
-        Spacer(Modifier.height(12.dp))
-        SearchField(
-            query = query,
-            onQueryChange = { query = it },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(12.dp))
-
-        LazyColumn(
-            Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            if (filtered.isEmpty()) {
-                item { EmptyStateCard("Поставок пока нет", "Создайте первую поставку для выбранного маркетплейса") }
-            }
-            items(filtered, key = { it.id }) { item ->
-                ShipmentCard(item = item, vm = vm)
             }
         }
     }
@@ -974,47 +1054,57 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
     var city by remember { mutableStateOf("") }
     val shipment = state.shipments.firstOrNull { it.id == state.selectedShipmentId }
 
-    Column(Modifier.fillMaxSize()) {
-        shipment?.let {
-            ShipmentSummaryCard(it)
-            Spacer(Modifier.height(12.dp))
-        }
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            shipment?.let {
+                ShipmentSummaryCard(it)
+                Spacer(Modifier.height(12.dp))
+            }
 
-        ModernCard(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Направления", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ModernTextField(
-                        city,
-                        { city = it },
-                        Modifier.weight(1f),
-                        label = "Город / направление",
-                        placeholder = "Москва, СПБ, Казань",
-                        leadingIcon = Icons.Outlined.Search
-                    )
-                    AppIconActionButton(Icons.Outlined.Add, "Добавить", primary = true) {
-                        vm.addCity(city)
-                        city = ""
-                    }
+            LazyColumn(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 148.dp)
+            ) {
+                if (state.shipmentCities.isEmpty()) {
+                    item { EmptyStateCard("Города пока не добавлены", "Добавьте город или направление для сборки коробок") }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AppPrimaryButton("Excel", Modifier.weight(1f), Icons.Outlined.Description) { vm.generateExcel() }
-                    AppSecondaryButton("CSV", Modifier.widthIn(min = 76.dp, max = 92.dp), Icons.Outlined.FileDownload) { vm.exportCsv() }
+                items(state.shipmentCities, key = { it.id }) { item ->
+                    CityCard(item = item, onOpen = { vm.openCity(item.id) })
                 }
             }
         }
-        Spacer(Modifier.height(12.dp))
 
-        LazyColumn(
-            Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(bottom = 24.dp)
-        ) {
-            if (state.shipmentCities.isEmpty()) {
-                item { EmptyStateCard("Города пока не добавлены", "Добавьте город или направление для сборки коробок") }
+        BottomDockSurface(modifier = Modifier.align(Alignment.BottomCenter)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                DockHandle()
             }
-            items(state.shipmentCities, key = { it.id }) { item ->
-                CityCard(item = item, onOpen = { vm.openCity(item.id) })
+            Text("Направления", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ModernTextField(
+                    city,
+                    { city = it },
+                    Modifier.weight(1f),
+                    label = "Город / направление",
+                    placeholder = "Москва, СПБ, Казань",
+                    leadingIcon = Icons.Outlined.Search
+                )
+                AppIconActionButton(Icons.Outlined.Add, "Добавить", primary = true) {
+                    vm.addCity(city)
+                    city = ""
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AppPrimaryButton("Excel", Modifier.weight(1f), Icons.Outlined.Description) { vm.generateExcel() }
+                AppSecondaryButton("CSV", Modifier.widthIn(min = 86.dp, max = 98.dp), Icons.Outlined.FileDownload) { vm.exportCsv() }
             }
         }
     }
@@ -1378,37 +1468,60 @@ private fun BoxBottomActionBar(
     onToggleQuickAdd: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    ModernCard(
-        modifier
-            .fillMaxWidth()
-            .padding(bottom = 6.dp)
-    ) {
+    BottomDockSurface(modifier = modifier.padding(bottom = 2.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            DockHandle()
+        }
         Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            QuantityIconButton(Icons.Outlined.Remove) {
-                val next = ((qty.toIntOrNull() ?: 1) - 1).coerceAtLeast(1)
-                onQtyChange(next.toString())
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(InputContainerColor)
+                    .border(1.dp, CardBorderColor.copy(alpha = 0.92f), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                QuantityIconButton(Icons.Outlined.Remove) {
+                    val next = ((qty.toIntOrNull() ?: 1) - 1).coerceAtLeast(1)
+                    onQtyChange(next.toString())
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Кол-во", color = MutedTextColor, fontSize = 11.sp, maxLines = 1)
+                    Text(
+                        (qty.toIntOrNull() ?: 1).toString(),
+                        color = MainTextColor,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 18.sp,
+                        maxLines = 1
+                    )
+                }
+                QuantityIconButton(Icons.Outlined.Add, accent = true) {
+                    val next = (qty.toIntOrNull() ?: 1) + 1
+                    onQtyChange(next.toString())
+                }
             }
-            Text(
-                "Кол-во: ${qty.toIntOrNull() ?: 1}",
-                color = MainTextColor,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 13.sp,
-                maxLines = 1,
-                modifier = Modifier.widthIn(min = 72.dp)
-            )
-            QuantityIconButton(Icons.Outlined.Add, accent = true) {
-                val next = (qty.toIntOrNull() ?: 1) + 1
-                onQtyChange(next.toString())
-            }
+
             AppIconActionButton(Icons.Outlined.Description, "Excel", onClick = onExcel)
             AppIconActionButton(Icons.Outlined.Add, "Добавить", onClick = onToggleQuickAdd)
-            AppPrimaryButton("Сканировать", Modifier.weight(1f), Icons.Outlined.QrCodeScanner, onClick = onScan)
+            Button(
+                onClick = onScan,
+                modifier = Modifier.size(56.dp),
+                shape = CircleShape,
+                contentPadding = PaddingValues(0.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+            ) {
+                Icon(
+                    Icons.Outlined.QrCodeScanner,
+                    contentDescription = "Сканировать",
+                    modifier = Modifier.size(26.dp)
+                )
+            }
         }
     }
 }
@@ -1572,6 +1685,12 @@ private fun ProductDetailsBottomSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .shadow(
+                            elevation = 24.dp,
+                            shape = RoundedCornerShape(30.dp),
+                            ambientColor = Color(0x220B1226),
+                            spotColor = Color(0x300B1226)
+                        )
                         .clickable(
                             interactionSource = sheetInteraction,
                             indication = null,
@@ -1579,8 +1698,8 @@ private fun ProductDetailsBottomSheet(
                         ),
                     shape = RoundedCornerShape(30.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 18.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.85f))
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.9f))
                 ) {
                     Column(
                         modifier = Modifier

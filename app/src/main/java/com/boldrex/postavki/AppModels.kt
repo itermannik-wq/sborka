@@ -93,6 +93,7 @@ data class AppUiState(
     val selectedCityName: String = "",
     val selectedBoxNumber: String = "",
     val pendingBarcode: String? = null,
+    val openNewShipmentForm: Boolean = false,
     val lastFile: File? = null,
     val isBusy: Boolean = false,
     val message: String? = null

@@ -1,14 +1,15 @@
 package com.boldrex.postavki
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.lifecycle.viewmodel.compose.viewModel
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF2F5DFF),
@@ -45,13 +46,32 @@ private fun AppTheme(content: @Composable () -> Unit) {
 }
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val ACTION_NEW_SHIPMENT = "com.boldrex.postavki.action.NEW_SHIPMENT"
+        const val ACTION_IMPORT_REPORTS = "com.boldrex.postavki.action.IMPORT_REPORTS"
+        const val SHORTCUT_ID_NEW_SHIPMENT = "new_shipment"
+        const val SHORTCUT_ID_IMPORT_REPORTS = "import_reports"
+    }
+    private val vm: AppViewModel by viewModels { AppViewModel.factory(application) }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        dispatchShortcut(intent)
         setContent {
             AppTheme {
-                val vm: AppViewModel = viewModel(factory = AppViewModel.factory(application))
                 AppRoot(vm)
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        dispatchShortcut(intent)
+    }
+
+    private fun dispatchShortcut(intent: Intent?) {
+        val shortcutId = intent?.getStringExtra(Intent.EXTRA_SHORTCUT_ID)
+        vm.handleLauncherShortcut(intent?.action, shortcutId)
     }
 }

@@ -880,7 +880,7 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
     LaunchedEffect(state.openNewShipmentForm) {
         if (state.openNewShipmentForm) {
             newShipmentExpanded = true
-            menuExpanded = false
+            menuExpanded = true
             searchExpanded = false
             vm.consumeNewShipmentShortcut()
         }

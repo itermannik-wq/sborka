@@ -30,11 +30,48 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun goShipments() = runBusy {
-        _state.update { it.copy(screen = AppScreen.SHIPMENTS, selectedShipmentId = null, selectedCityId = null, selectedBoxId = null, pendingBarcode = null) }
+        _state.update { it.copy(screen = AppScreen.SHIPMENTS, selectedShipmentId = null, selectedCityId = null, selectedBoxId = null, pendingBarcode = null, openNewShipmentForm = false) }
         load()
     }
 
     fun goSettings() = _state.update { it.copy(screen = AppScreen.SETTINGS, message = null) }
+
+    fun handleLauncherShortcut(action: String?, shortcutId: String?) {
+        when {
+            action == MainActivity.ACTION_NEW_SHIPMENT || shortcutId == MainActivity.SHORTCUT_ID_NEW_SHIPMENT -> _state.update {
+                it.copy(
+                    screen = AppScreen.SHIPMENTS,
+                    selectedShipmentId = null,
+                    selectedCityId = null,
+                    selectedBoxId = null,
+                    pendingBarcode = null,
+                    openNewShipmentForm = true,
+                    message = null
+                )
+            }
+            action == MainActivity.ACTION_IMPORT_REPORTS || shortcutId == MainActivity.SHORTCUT_ID_IMPORT_REPORTS -> goSettings()
+        }
+    }
+
+    @Deprecated("Use handleLauncherShortcut(action, shortcutId)")
+    fun handleLauncherShortcut(action: String?) {
+        when (action) {
+            MainActivity.ACTION_NEW_SHIPMENT -> _state.update {
+                it.copy(
+                    screen = AppScreen.SHIPMENTS,
+                    selectedShipmentId = null,
+                    selectedCityId = null,
+                    selectedBoxId = null,
+                    pendingBarcode = null,
+                    openNewShipmentForm = true,
+                    message = null
+                )
+            }
+            MainActivity.ACTION_IMPORT_REPORTS -> goSettings()
+        }
+    }
+
+    fun consumeNewShipmentShortcut() = _state.update { it.copy(openNewShipmentForm = false) }
 
     fun openShipment(id: Long) = runBusy {
         _state.update { it.copy(screen = AppScreen.CITIES, selectedShipmentId = id, selectedCityId = null, selectedBoxId = null, pendingBarcode = null) }

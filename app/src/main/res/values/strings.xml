@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Поставки</string>
+    <string name="shortcut_new_shipment_short">Новая отгрузка</string>
+    <string name="shortcut_new_shipment_long">Создать новую отгрузку</string>
+    <string name="shortcut_import_reports_short">Импорт / отчёты</string>
+    <string name="shortcut_import_reports_long">Открыть импорт и отчёты</string>
 </resources>

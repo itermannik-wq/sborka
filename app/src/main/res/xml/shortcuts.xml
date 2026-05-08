@@ -8,7 +8,6 @@
         android:shortcutLongLabel="@string/shortcut_new_shipment_long">
         <intent
             android:action="com.boldrex.postavki.action.NEW_SHIPMENT"
-            android:targetPackage="com.boldrex.postavki"
             android:targetClass="com.boldrex.postavki.MainActivity" />
     </shortcut>
 
@@ -20,7 +19,6 @@
         android:shortcutLongLabel="@string/shortcut_import_reports_long">
         <intent
             android:action="com.boldrex.postavki.action.IMPORT_REPORTS"
-            android:targetPackage="com.boldrex.postavki"
             android:targetClass="com.boldrex.postavki.MainActivity" />
     </shortcut>
 </shortcuts>

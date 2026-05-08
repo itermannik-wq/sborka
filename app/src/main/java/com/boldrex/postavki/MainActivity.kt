@@ -1,6 +1,7 @@
 package com.boldrex.postavki
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
@@ -48,12 +49,14 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val ACTION_NEW_SHIPMENT = "com.boldrex.postavki.action.NEW_SHIPMENT"
         const val ACTION_IMPORT_REPORTS = "com.boldrex.postavki.action.IMPORT_REPORTS"
+        const val SHORTCUT_ID_NEW_SHIPMENT = "new_shipment"
+        const val SHORTCUT_ID_IMPORT_REPORTS = "import_reports"
     }
     private val vm: AppViewModel by viewModels { AppViewModel.factory(application) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        vm.handleLauncherShortcut(intent?.action)
+        dispatchShortcut(intent)
         setContent {
             AppTheme {
                 AppRoot(vm)
@@ -64,6 +67,11 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        vm.handleLauncherShortcut(intent.action)
+        dispatchShortcut(intent)
+    }
+
+    private fun dispatchShortcut(intent: Intent?) {
+        val shortcutId = intent?.getStringExtra(Intent.EXTRA_SHORTCUT_ID)
+        vm.handleLauncherShortcut(intent?.action, shortcutId)
     }
 }

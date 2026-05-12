@@ -1066,7 +1066,13 @@ private fun DashboardMetric(
 }
 
 @Composable
-private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun MarketplaceButton(
+    title: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
     val animatedBorder by androidx.compose.animation.animateColorAsState(
         targetValue = if (selected) AccentColor else CardBorderColor,
         animationSpec = tween(260),

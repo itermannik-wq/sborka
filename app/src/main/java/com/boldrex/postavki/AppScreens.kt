@@ -146,7 +146,6 @@ private fun AppPrimaryButton(
 ) {
     Button(
         onClick = onClick,
-        enabled = enabled,
         modifier = modifier
             .defaultMinSize(minHeight = 44.dp)
             .heightIn(min = 44.dp),
@@ -176,10 +175,12 @@ private fun AppSecondaryButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     danger: Boolean = false,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     OutlinedButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier
             .defaultMinSize(minHeight = 44.dp)
             .heightIn(min = 44.dp),
@@ -1094,6 +1095,7 @@ private fun MarketplaceButton(title: String, selected: Boolean, modifier: Modifi
 
     OutlinedButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier
             .defaultMinSize(minHeight = 44.dp)
             .heightIn(min = 44.dp),
@@ -2367,12 +2369,33 @@ private fun ImportPreviewCard(preview: ProductImportPreview, vm: AppViewModel) {
                 if (rest > 0) Text("Ещё проблемных строк: $rest", color = MutedTextColor, fontSize = 13.sp)
             }
 
+            val pageSize = 12
+            var pageIndex by rememberSaveable(preview.fileName, preview.rows.size) { mutableStateOf(0) }
+            val totalPages = ((preview.rows.size + pageSize - 1) / pageSize).coerceAtLeast(1)
+            if (pageIndex >= totalPages) pageIndex = totalPages - 1
+            val fromIndex = pageIndex * pageSize
+            val toIndex = minOf(fromIndex + pageSize, preview.rows.size)
+
             Text("Первые строки файла", fontWeight = FontWeight.ExtraBold, color = MainTextColor, fontSize = 15.sp)
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                preview.rows.take(12).forEach { row -> ImportRowPreviewItem(row) }
+                preview.rows.subList(fromIndex, toIndex).forEach { row -> ImportRowPreviewItem(row) }
             }
-            if (preview.rows.size > 12) {
-                Text("Показано 12 из ${preview.rows.size}. Все строки будут учтены при импорте.", color = MutedTextColor, fontSize = 13.sp)
+            if (preview.rows.size > pageSize) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Показано ${fromIndex + 1}–$toIndex из ${preview.rows.size}", color = MutedTextColor, fontSize = 13.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        AppSecondaryButton("Назад", icon = Icons.Outlined.Remove, enabled = pageIndex > 0) {
+                            pageIndex -= 1
+                        }
+                        AppSecondaryButton("Вперёд", icon = Icons.Outlined.Add, enabled = pageIndex < totalPages - 1) {
+                            pageIndex += 1
+                        }
+                    }
+                }
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

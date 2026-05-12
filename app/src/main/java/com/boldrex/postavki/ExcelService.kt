@@ -20,31 +20,80 @@ import java.util.zip.ZipOutputStream
 object ExcelService {
     data class ImportResult(val rowsTotal: Int, val rowsImported: Int, val errorsCount: Int)
 
-    suspend fun importProducts(context: Context, uri: Uri, repo: ShipmentRepository): ImportResult {
-        val name = displayName(context, uri).lowercase(Locale.getDefault())
-        val input = context.contentResolver.openInputStream(uri) ?: return ImportResult(0, 0, 1)
-        val bytes = input.readBytes()
-        val rows = when {
-            name.endsWith(".xlsx") -> parseXlsx(bytes.inputStream())
-            name.endsWith(".xml") -> parseXml(decodeText(bytes))
-            else -> parseCsv(decodeText(bytes))
+    suspend fun previewProductImport(context: Context, uri: Uri, repo: ShipmentRepository): ProductImportPreview {
+        val parsed = parseImportFile(context, uri)
+        val firstBarcodeRows = mutableSetOf<String>()
+        val rows = parsed.rows.map { row ->
+            val article = valueByAliases(row.values, ARTICLE_ALIASES).orEmpty().trim()
+            val name = valueByAliases(row.values, NAME_ALIASES).orEmpty().trim()
+            val barcode = valueByAliases(row.values, BARCODE_ALIASES)?.trim()?.takeIf { it.isNotBlank() }
+            val errors = buildList {
+                if (name.isBlank()) add("Не заполнено название товара")
+            }
+            val duplicateInFile = barcode != null && !firstBarcodeRows.add(barcode)
+            val willUpdate = errors.isEmpty() && !duplicateInFile && (barcode?.let { repo.findProductByBarcode(it) != null } == true)
+            ImportRowPreview(
+                rowNumber = row.rowNumber,
+                article = article,
+                name = name,
+                barcode = barcode,
+                errors = errors,
+                duplicateInFile = duplicateInFile,
+                willUpdate = willUpdate
+            )
         }
-        var ok = 0
-        var errors = 0
-        rows.forEach { row ->
+        val importable = rows.filter { it.canImport }
+        return ProductImportPreview(
+            fileName = parsed.fileName,
+            fileType = parsed.fileType,
+            rowsTotal = rows.size,
+            rowsForImport = importable.size,
+            errorRows = rows.count { it.errors.isNotEmpty() },
+            duplicateBarcodeRows = rows.count { it.duplicateInFile },
+            updateRows = importable.count { it.willUpdate },
+            addRows = importable.count { !it.willUpdate },
+            columns = importColumnPreview(parsed),
+            rows = rows
+        )
+    }
+
+    suspend fun commitProductImport(preview: ProductImportPreview, repo: ShipmentRepository): ProductImportResult {
+        var added = 0
+        var updated = 0
+        var runtimeErrors = 0
+        var skipped = 0
+
+        preview.rows.forEach { row ->
+            if (!row.canImport) {
+                skipped++
+                return@forEach
+            }
             try {
-                val article = valueByAliases(row, ARTICLE_ALIASES).orEmpty()
-                val title = valueByAliases(row, NAME_ALIASES).orEmpty()
-                val barcode = valueByAliases(row, BARCODE_ALIASES)
-                if (title.isBlank() && article.isBlank() && barcode.isNullOrBlank()) return@forEach
-                repo.createOrUpdateProduct(article, title.ifBlank { article.ifBlank { barcode.orEmpty() } }, barcode, createdFromScan = false)
-                ok++
+                val existed = row.barcode?.let { repo.findProductByBarcode(it) != null } == true
+                repo.createOrUpdateProduct(row.article, row.name, row.barcode, createdFromScan = false)
+                if (existed) updated++ else added++
             } catch (_: Throwable) {
-                errors++
+                runtimeErrors++
+                skipped++
             }
         }
-        repo.logImport(displayName(context, uri), name.substringAfterLast('.', "csv"), rows.size, ok, errors)
-        return ImportResult(rows.size, ok, errors)
+
+        repo.logImport(preview.fileName, preview.fileType, preview.rowsTotal, added + updated, skipped)
+        return ProductImportResult(
+            fileName = preview.fileName,
+            rowsTotal = preview.rowsTotal,
+            added = added,
+            updated = updated,
+            skipped = skipped,
+            errors = preview.errorRows + runtimeErrors,
+            duplicateBarcodes = preview.duplicateBarcodeRows
+        )
+    }
+
+    suspend fun importProducts(context: Context, uri: Uri, repo: ShipmentRepository): ImportResult {
+        val preview = previewProductImport(context, uri, repo)
+        val result = commitProductImport(preview, repo)
+        return ImportResult(result.rowsTotal, result.added + result.updated, result.errors + result.duplicateBarcodes)
     }
 
     fun generateXlsx(context: Context, info: ShipmentInfo, rows: List<ReportRow>, boxes: List<ReportBox>): File {
@@ -198,18 +247,75 @@ object ExcelService {
         closeEntry()
     }
 
-    private fun parseCsv(text: String): List<Map<String, String>> {
+    private data class ParsedImportFile(
+        val fileName: String,
+        val fileType: String,
+        val hasHeader: Boolean,
+        val headers: List<String>,
+        val rows: List<ParsedImportRow>
+    )
+
+    private data class ParsedImportRow(
+        val rowNumber: Int,
+        val values: Map<String, String>
+    )
+
+    private fun parseImportFile(context: Context, uri: Uri): ParsedImportFile {
+        val fileName = displayName(context, uri)
+        val lowerName = fileName.lowercase(Locale.getDefault())
+        val fileType = lowerName.substringAfterLast('.', "csv").ifBlank { "csv" }
+        val input = context.contentResolver.openInputStream(uri) ?: error("Не удалось открыть файл")
+        val bytes = input.use { it.readBytes() }
+        return when {
+            lowerName.endsWith(".xlsx") -> parseXlsx(fileName, fileType, bytes.inputStream())
+            lowerName.endsWith(".xml") -> parseXml(fileName, fileType, decodeText(bytes))
+            else -> parseCsv(fileName, fileType, decodeText(bytes))
+        }
+    }
+
+    private fun importColumnPreview(parsed: ParsedImportFile): List<ImportColumnPreview> {
+        fun sourceByAliases(aliases: Set<String>, noHeaderSource: String): ImportColumnPreview {
+            val header = parsed.headers.firstOrNull { normalizeKey(it) in aliases }
+            return when {
+                header != null -> ImportColumnPreview(roleName(aliases), header.ifBlank { noHeaderSource }, true)
+                !parsed.hasHeader -> ImportColumnPreview(roleName(aliases), noHeaderSource, true)
+                else -> ImportColumnPreview(roleName(aliases), "Не найдена", false)
+            }
+        }
+        return listOf(
+            sourceByAliases(ARTICLE_ALIASES, "1-я колонка"),
+            sourceByAliases(NAME_ALIASES, "2-я колонка"),
+            sourceByAliases(BARCODE_ALIASES, "3-я колонка")
+        )
+    }
+
+    private fun roleName(aliases: Set<String>): String = when (aliases) {
+        ARTICLE_ALIASES -> "Артикул"
+        NAME_ALIASES -> "Название"
+        else -> "Штрихкод"
+    }
+
+    private fun parseCsv(fileName: String, fileType: String, text: String): ParsedImportFile {
         val clean = text.removePrefix("\uFEFF")
         val lines = clean.lines().filter { it.isNotBlank() }
-        if (lines.isEmpty()) return emptyList()
+        if (lines.isEmpty()) return ParsedImportFile(fileName, fileType, hasHeader = true, headers = emptyList(), rows = emptyList())
         val delimiter = detectDelimiter(lines.first())
-        val first = splitCsvLine(lines.first(), delimiter).map { it.trim().lowercase(Locale.getDefault()) }
+        val first = splitCsvLine(lines.first(), delimiter).map { it.trim() }
         val hasHeader = first.any { normalizeKey(it) in KNOWN_IMPORT_KEYS }
         val headers = if (hasHeader) first else listOf("article", "name", "barcode")
-        return lines.drop(if (hasHeader) 1 else 0).mapNotNull { line ->
+        val dataLines = lines.drop(if (hasHeader) 1 else 0)
+        val rows = dataLines.mapIndexedNotNull { index, line ->
             val values = splitCsvLine(line, delimiter)
-            if (values.all { it.isBlank() }) null else headers.mapIndexedNotNull { index, key -> key to values.getOrElse(index) { "" }.trim() }.toMap()
+            if (values.all { it.isBlank() }) return@mapIndexedNotNull null
+            val rowNumber = index + if (hasHeader) 2 else 1
+            ParsedImportRow(
+                rowNumber = rowNumber,
+                values = headers.mapIndexedNotNull { columnIndex, key ->
+                    key to values.getOrElse(columnIndex) { "" }.trim()
+                }.toMap()
+            )
         }
+        return ParsedImportFile(fileName, fileType, hasHeader, headers, rows)
     }
 
     private fun detectDelimiter(header: String): Char {
@@ -231,27 +337,39 @@ object ExcelService {
         val result = mutableListOf<String>()
         val sb = StringBuilder()
         var quoted = false
-        line.forEach { ch ->
+        var i = 0
+        while (i < line.length) {
+            val ch = line[i]
             when {
+                ch == '"' && quoted && i + 1 < line.length && line[i + 1] == '"' -> {
+                    sb.append('"')
+                    i++
+                }
                 ch == '"' -> quoted = !quoted
                 ch == delimiter && !quoted -> { result += sb.toString(); sb.clear() }
                 else -> sb.append(ch)
             }
+            i++
         }
         result += sb.toString()
         return result
     }
 
-    private fun parseXml(text: String): List<Map<String, String>> {
+    private fun parseXml(fileName: String, fileType: String, text: String): ParsedImportFile {
         val itemRegex = Regex("<product([^>]*)/?>|<товар([^>]*)/?>", RegexOption.IGNORE_CASE)
         val attrRegex = Regex("(article|артикул|sku|name|название|barcode|штрихкод|код)=['\"]([^'\"]*)['\"]", RegexOption.IGNORE_CASE)
-        return itemRegex.findAll(text).map { match ->
+        val rows = itemRegex.findAll(text).mapIndexed { index, match ->
             val attrs = match.groupValues.drop(1).joinToString(" ")
-            attrRegex.findAll(attrs).associate { it.groupValues[1].lowercase(Locale.getDefault()) to it.groupValues[2] }
+            ParsedImportRow(
+                rowNumber = index + 1,
+                values = attrRegex.findAll(attrs).associate { it.groupValues[1].trim() to it.groupValues[2].trim() }
+            )
         }.toList()
+        val headers = rows.flatMap { it.values.keys }.distinct()
+        return ParsedImportFile(fileName, fileType, hasHeader = true, headers = headers, rows = rows)
     }
 
-    private fun parseXlsx(input: InputStream): List<Map<String, String>> {
+    private fun parseXlsx(fileName: String, fileType: String, input: InputStream): ParsedImportFile {
         val entries = mutableMapOf<String, String>()
         ZipInputStream(input).use { zip ->
             while (true) {
@@ -264,24 +382,48 @@ object ExcelService {
         }
         val shared = parseSharedStrings(entries["xl/sharedStrings.xml"].orEmpty())
         val sheet = entries["xl/worksheets/sheet1.xml"].orEmpty()
-        val rows = Regex("<row[^>]*>(.*?)</row>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).findAll(sheet).map { rowMatch ->
-            Regex("<c([^>]*)>(.*?)</c>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).findAll(rowMatch.groupValues[1]).map { c ->
-                val attrs = c.groupValues[1]
-                val body = c.groupValues[2]
-                val isShared = attrs.contains("t=\"s\"") || attrs.contains("t='s'")
-                val inline = Regex("<t[^>]*>(.*?)</t>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).find(body)?.groupValues?.get(1)
-                val value = Regex("<v[^>]*>(.*?)</v>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).find(body)?.groupValues?.get(1)
-                when {
-                    inline != null -> html(inline)
-                    isShared && value != null -> shared.getOrElse(value.toIntOrNull() ?: -1) { "" }
-                    else -> html(value.orEmpty())
-                }
-            }.toList()
-        }.toList()
-        if (rows.isEmpty()) return emptyList()
-        val header = rows.first().map { it.trim().lowercase(Locale.getDefault()) }
-        val headers = if (header.any { normalizeKey(it) in KNOWN_IMPORT_KEYS }) header else listOf("article", "name", "barcode")
-        return rows.drop(if (headers == header) 1 else 0).map { row -> headers.mapIndexed { i, h -> h to row.getOrElse(i) { "" }.trim() }.toMap() }
+        val rawRows = Regex("<row([^>]*)>(.*?)</row>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).findAll(sheet).mapIndexed { rowIndex, rowMatch ->
+            val rowAttrs = rowMatch.groupValues[1]
+            val rowNumber = Regex("\\br=['\"]?(\\d+)", RegexOption.IGNORE_CASE).find(rowAttrs)?.groupValues?.get(1)?.toIntOrNull() ?: rowIndex + 1
+            rowNumber to parseXlsxRow(rowMatch.groupValues[2], shared)
+        }.filter { it.second.any { cell -> cell.isNotBlank() } }.toList()
+        if (rawRows.isEmpty()) return ParsedImportFile(fileName, fileType, hasHeader = true, headers = emptyList(), rows = emptyList())
+        val first = rawRows.first().second.map { it.trim() }
+        val hasHeader = first.any { normalizeKey(it) in KNOWN_IMPORT_KEYS }
+        val headers = if (hasHeader) first else listOf("article", "name", "barcode")
+        val rows = rawRows.drop(if (hasHeader) 1 else 0).map { (rowNumber, values) ->
+            ParsedImportRow(
+                rowNumber = rowNumber,
+                values = headers.mapIndexed { index, key -> key to values.getOrElse(index) { "" }.trim() }.toMap()
+            )
+        }
+        return ParsedImportFile(fileName, fileType, hasHeader, headers, rows)
+    }
+
+    private fun parseXlsxRow(rowXml: String, shared: List<String>): List<String> {
+        val valuesByColumn = mutableMapOf<Int, String>()
+        var fallbackIndex = 0
+        Regex("<c([^>]*)>(.*?)</c>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).findAll(rowXml).forEach { c ->
+            val attrs = c.groupValues[1]
+            val body = c.groupValues[2]
+            val columnIndex = xlsxColumnIndex(attrs) ?: fallbackIndex
+            fallbackIndex = columnIndex + 1
+            val isShared = attrs.contains("t=\"s\"") || attrs.contains("t='s'")
+            val inline = Regex("<t[^>]*>(.*?)</t>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).find(body)?.groupValues?.get(1)
+            val value = Regex("<v[^>]*>(.*?)</v>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)).find(body)?.groupValues?.get(1)
+            valuesByColumn[columnIndex] = when {
+                inline != null -> html(inline)
+                isShared && value != null -> shared.getOrElse(value.toIntOrNull() ?: -1) { "" }
+                else -> html(value.orEmpty())
+            }
+        }
+        val maxIndex = valuesByColumn.keys.maxOrNull() ?: return emptyList()
+        return (0..maxIndex).map { valuesByColumn[it].orEmpty() }
+    }
+
+    private fun xlsxColumnIndex(attrs: String): Int? {
+        val ref = Regex("\\br=['\"]?([A-Z]+)\\d+", RegexOption.IGNORE_CASE).find(attrs)?.groupValues?.get(1) ?: return null
+        return ref.uppercase(Locale.getDefault()).fold(0) { acc, ch -> acc * 26 + (ch.code - 'A'.code + 1) } - 1
     }
 
     private fun valueByAliases(row: Map<String, String>, aliases: Set<String>): String? {

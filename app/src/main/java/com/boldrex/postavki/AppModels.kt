@@ -79,6 +79,48 @@ data class ReportBox(
     val itemCount: Long
 )
 
+
+data class ImportColumnPreview(
+    val role: String,
+    val source: String,
+    val found: Boolean
+)
+
+data class ImportRowPreview(
+    val rowNumber: Int,
+    val article: String,
+    val name: String,
+    val barcode: String?,
+    val errors: List<String> = emptyList(),
+    val duplicateInFile: Boolean = false,
+    val willUpdate: Boolean = false
+) {
+    val canImport: Boolean get() = errors.isEmpty() && !duplicateInFile
+}
+
+data class ProductImportPreview(
+    val fileName: String,
+    val fileType: String,
+    val rowsTotal: Int,
+    val rowsForImport: Int,
+    val errorRows: Int,
+    val duplicateBarcodeRows: Int,
+    val updateRows: Int,
+    val addRows: Int,
+    val columns: List<ImportColumnPreview>,
+    val rows: List<ImportRowPreview>
+)
+
+data class ProductImportResult(
+    val fileName: String,
+    val rowsTotal: Int,
+    val added: Int,
+    val updated: Int,
+    val skipped: Int,
+    val errors: Int,
+    val duplicateBarcodes: Int
+)
+
 data class AppUiState(
     val screen: AppScreen = AppScreen.SHIPMENTS,
     val shipments: List<ShipmentCardData> = emptyList(),
@@ -95,6 +137,8 @@ data class AppUiState(
     val pendingBarcode: String? = null,
     val openNewShipmentForm: Boolean = false,
     val lastFile: File? = null,
+    val importPreview: ProductImportPreview? = null,
+    val importResult: ProductImportResult? = null,
     val isBusy: Boolean = false,
     val message: String? = null
 )

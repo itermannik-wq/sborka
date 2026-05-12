@@ -141,10 +141,12 @@ private fun AppPrimaryButton(
     text: String,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         modifier = modifier
             .defaultMinSize(minHeight = 44.dp)
             .heightIn(min = 44.dp),
@@ -2246,7 +2248,7 @@ private fun EmptyStateCard(title: String, subtitle: String) {
 @Composable
 private fun SettingsScreen(state: AppUiState, vm: AppViewModel) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.importProducts(uri)
+        if (uri != null) vm.previewProductImport(uri)
     }
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -2256,14 +2258,31 @@ private fun SettingsScreen(state: AppUiState, vm: AppViewModel) {
         item {
             SettingsGroup(
                 title = "Импорт товаров",
-                subtitle = "Загрузка справочника для сканирования",
+                subtitle = "Безопасная загрузка справочника для сканирования",
                 icon = Icons.Outlined.FileDownload
             ) {
-                Text("Поддерживаемые колонки: article/артикул, name/название, barcode/штрихкод.", color = MutedTextColor, fontSize = 14.sp)
+                Text(
+                    "Сначала приложение покажет предпросмотр: найденные колонки, строки с ошибками, дубли штрихкодов и товары, которые будут обновлены.",
+                    color = MutedTextColor,
+                    fontSize = 14.sp,
+                    lineHeight = 18.sp
+                )
                 AppPrimaryButton("Выбрать файл", Modifier.fillMaxWidth(), Icons.Outlined.FileDownload) {
                     picker.launch(arrayOf("text/*", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/xml", "text/xml", "text/csv"))
                 }
+                Text(
+                    "Поддерживаемые колонки: article/артикул, name/название, barcode/штрихкод. Строки без названия товара не импортируются.",
+                    color = SoftTextColor,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
             }
+        }
+        state.importPreview?.let { preview ->
+            item { ImportPreviewCard(preview = preview, vm = vm) }
+        }
+        state.importResult?.let { result ->
+            item { ImportResultCard(result = result, onClose = vm::clearImportResult) }
         }
         item {
             SettingsGroup(
@@ -2302,6 +2321,167 @@ private fun SettingsScreen(state: AppUiState, vm: AppViewModel) {
                 Text("В карточках товаров используется маркетплейс текущей поставки, а не жестко заданный Ozon.", color = MutedTextColor, fontSize = 14.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun ImportPreviewCard(preview: ProductImportPreview, vm: AppViewModel) {
+    SettingsGroup(
+        title = "Предпросмотр импорта",
+        subtitle = preview.fileName,
+        icon = Icons.Outlined.Search
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ImportMetric("Строк", preview.rowsTotal.toString(), Modifier.weight(1f))
+                ImportMetric("К импорту", preview.rowsForImport.toString(), Modifier.weight(1f), positive = true)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ImportMetric("Обновится", preview.updateRows.toString(), Modifier.weight(1f), positive = true)
+                ImportMetric("Добавится", preview.addRows.toString(), Modifier.weight(1f), positive = true)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ImportMetric("Ошибки", preview.errorRows.toString(), Modifier.weight(1f), danger = preview.errorRows > 0)
+                ImportMetric("Дубли", preview.duplicateBarcodeRows.toString(), Modifier.weight(1f), danger = preview.duplicateBarcodeRows > 0)
+            }
+
+            Text("Найденные колонки", fontWeight = FontWeight.ExtraBold, color = MainTextColor, fontSize = 15.sp)
+            preview.columns.forEach { column ->
+                SettingsInfoRow(column.role, if (column.found) column.source else "Не найдена")
+            }
+
+            val problemRows = preview.rows.filter { it.errors.isNotEmpty() || it.duplicateInFile }.take(8)
+            if (problemRows.isNotEmpty()) {
+                Text("Строки, которые будут пропущены", fontWeight = FontWeight.ExtraBold, color = MainTextColor, fontSize = 15.sp)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    problemRows.forEach { row ->
+                        val reason = when {
+                            row.errors.isNotEmpty() -> row.errors.joinToString(", ")
+                            row.duplicateInFile -> "Дубль штрихкода в файле"
+                            else -> "Проверить строку"
+                        }
+                        ImportIssueRow(row.rowNumber, reason)
+                    }
+                }
+                val rest = preview.rows.count { it.errors.isNotEmpty() || it.duplicateInFile } - problemRows.size
+                if (rest > 0) Text("Ещё проблемных строк: $rest", color = MutedTextColor, fontSize = 13.sp)
+            }
+
+            Text("Первые строки файла", fontWeight = FontWeight.ExtraBold, color = MainTextColor, fontSize = 15.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                preview.rows.take(12).forEach { row -> ImportRowPreviewItem(row) }
+            }
+            if (preview.rows.size > 12) {
+                Text("Показано 12 из ${preview.rows.size}. Все строки будут учтены при импорте.", color = MutedTextColor, fontSize = 13.sp)
+            }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AppSecondaryButton("Отменить", Modifier.weight(1f), Icons.Outlined.Close) { vm.cancelProductImport() }
+                AppPrimaryButton(
+                    text = "Импортировать",
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.CheckCircle,
+                    enabled = preview.rowsForImport > 0
+                ) { vm.confirmProductImport() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImportResultCard(result: ProductImportResult, onClose: () -> Unit) {
+    SettingsGroup(
+        title = "Результат импорта",
+        subtitle = result.fileName,
+        icon = Icons.Outlined.CheckCircle
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ImportMetric("Обновлено", result.updated.toString(), Modifier.weight(1f), positive = true)
+            ImportMetric("Добавлено", result.added.toString(), Modifier.weight(1f), positive = true)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ImportMetric("Пропущено", result.skipped.toString(), Modifier.weight(1f), danger = result.skipped > 0)
+            ImportMetric("Ошибки", result.errors.toString(), Modifier.weight(1f), danger = result.errors > 0)
+        }
+        if (result.duplicateBarcodes > 0) {
+            StatusBadge("Дубли штрихкодов в файле: ${result.duplicateBarcodes}", tone = BadgeTone.Purple)
+        }
+        AppSecondaryButton("Скрыть результат", Modifier.fillMaxWidth(), Icons.Outlined.Close, onClick = onClose)
+    }
+}
+
+@Composable
+private fun ImportMetric(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    positive: Boolean = false,
+    danger: Boolean = false
+) {
+    val tint = when {
+        danger -> DangerColor
+        positive -> SuccessColor
+        else -> AccentColor
+    }
+    Column(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFFF7F9FF))
+            .border(1.dp, CardBorderColor.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(title, color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, color = tint, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun ImportIssueRow(rowNumber: Int, reason: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xFFFFF7ED))
+            .border(1.dp, Color(0xFFFED7AA), RoundedCornerShape(14.dp))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        StatusBadge("$rowNumber", tone = BadgeTone.Purple)
+        Text(reason, color = MainTextColor, fontSize = 13.sp, lineHeight = 16.sp, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun ImportRowPreviewItem(row: ImportRowPreview) {
+    val statusText = when {
+        row.errors.isNotEmpty() -> "Ошибка"
+        row.duplicateInFile -> "Дубль"
+        row.willUpdate -> "Обновится"
+        else -> "Добавится"
+    }
+    val statusTone = when {
+        row.errors.isNotEmpty() || row.duplicateInFile -> BadgeTone.Purple
+        row.willUpdate -> BadgeTone.Blue
+        else -> BadgeTone.Green
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFFF7F9FF))
+            .border(1.dp, CardBorderColor.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("Строка ${row.rowNumber}", color = MutedTextColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            StatusBadge(statusText, tone = statusTone)
+        }
+        Text(row.name.ifBlank { "Без названия" }, color = MainTextColor, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text("Артикул: ${row.article.ifBlank { "—" }}", color = MutedTextColor, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("Штрихкод: ${row.barcode ?: "—"}", color = MutedTextColor, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

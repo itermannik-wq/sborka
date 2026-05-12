@@ -194,10 +194,34 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(lastFile = file, message = "CSV сформирован: ${file.name}") }
     }
 
-    fun importProducts(uri: Uri) = runBusy {
-        val result = ExcelService.importProducts(getApplication(), uri, repo)
-        _state.update { it.copy(message = "Импорт: ${result.rowsImported}/${result.rowsTotal}, ошибок: ${result.errorsCount}") }
+    fun previewProductImport(uri: Uri) = runBusy {
+        val preview = ExcelService.previewProductImport(getApplication(), uri, repo)
+        _state.update {
+            it.copy(
+                importPreview = preview,
+                importResult = null,
+                message = "Предпросмотр готов: к импорту ${preview.rowsForImport} из ${preview.rowsTotal}"
+            )
+        }
     }
+
+    fun confirmProductImport() = runBusy {
+        val preview = requireNotNull(_state.value.importPreview) { "Сначала выберите файл для предпросмотра" }
+        val result = ExcelService.commitProductImport(preview, repo)
+        _state.update {
+            it.copy(
+                importPreview = null,
+                importResult = result,
+                message = "Импорт завершён: обновлено ${result.updated}, добавлено ${result.added}, пропущено ${result.skipped}"
+            )
+        }
+    }
+
+    fun cancelProductImport() = _state.update { it.copy(importPreview = null, message = "Импорт отменён") }
+
+    fun clearImportResult() = _state.update { it.copy(importResult = null) }
+
+    fun importProducts(uri: Uri) = previewProductImport(uri)
 
     fun clearMessage() = _state.update { it.copy(message = null) }
 

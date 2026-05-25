@@ -2626,8 +2626,7 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
     var showPreview by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf("ALL") }
-    var isSummaryExpanded by rememberSaveable { mutableStateOf(false) }
-    var controlsExpanded by rememberSaveable { mutableStateOf(true) }
+    var isSummaryExpanded by rememberSaveable { mutableStateOf(true) }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val checkedCount = state.items.count { it.status != PreAssemblyStatus.NOT_CHECKED }
@@ -2691,9 +2690,7 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
                     statusFilter = statusFilter,
                     onStatusFilterChange = { statusFilter = it },
                     onReload = vm::loadOrders,
-                    isLoading = state.isLoading,
-                    expanded = controlsExpanded,
-                    onExpandedChange = { controlsExpanded = it }
+                    isLoading = state.isLoading
                 )
                 if (filteredItems.isEmpty()) {
                     PreAssemblyNoResultsCard(onReset = { searchQuery = ""; statusFilter = "ALL" })
@@ -2834,41 +2831,24 @@ private fun PreAssemblySummaryPanel(
     onToggleExpanded: () -> Unit
 ) {
     ModernCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .clickable(onClick = onToggleExpanded)
-                    .padding(horizontal = 2.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 AppIconBubble(Icons.Outlined.CheckCircle, tint = SuccessColor, background = Color(0xFFE9F8EF), modifier = Modifier.size(42.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Сводка проверки", fontWeight = FontWeight.Bold, color = MainTextColor, fontSize = 17.sp)
                     Text("Проверено $checked из $total позиций", color = MutedTextColor, fontSize = 13.sp)
                 }
                 StatusBadge("$checked/$total", tone = if (notChecked == 0) BadgeTone.Green else BadgeTone.Blue)
-                IconButton(
+                AppIconActionButton(
+                    icon = Icons.Outlined.ExpandMore,
+                    contentDescription = if (isExpanded) "Свернуть сводку" else "Развернуть сводку",
                     onClick = onToggleExpanded,
-                    modifier = Modifier.size(34.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.ExpandMore,
-                        contentDescription = if (isExpanded) "Свернуть сводку" else "Развернуть сводку",
-                        tint = MutedTextColor,
-                        modifier = Modifier
-                            .size(22.dp)
-                            .rotate(if (isExpanded) 180f else 0f)
-                    )
-                }
+                    modifier = Modifier
+                        .size(34.dp)
+                        .rotate(if (isExpanded) 180f else 0f)
+                )
             }
-            AnimatedVisibility(
-                visible = isExpanded,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
+            AnimatedVisibility(visible = isExpanded, enter = fadeIn(), exit = fadeOut()) {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     if (maxWidth < 420.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2911,43 +2891,26 @@ private fun PreAssemblyControlPanel(
     statusFilter: String,
     onStatusFilterChange: (String) -> Unit,
     onReload: () -> Unit,
-    isLoading: Boolean,
-    expanded: Boolean,
-    onExpandedChange: (Boolean) -> Unit
+    isLoading: Boolean
 ) {
     ModernCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Поиск и фильтры", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                IconButton(onClick = { onExpandedChange(!expanded) }, modifier = Modifier.size(30.dp)) {
-                    Icon(
-                        imageVector = Icons.Outlined.ExpandMore,
-                        contentDescription = if (expanded) "Свернуть поиск и фильтры" else "Развернуть поиск и фильтры",
-                        tint = MutedTextColor,
-                        modifier = Modifier.rotate(if (expanded) 180f else 0f)
-                    )
-                }
-            }
-            AnimatedVisibility(visible = expanded) {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FloatingSearchInput(
-                        value = searchQuery,
-                        onValueChange = onSearchQueryChange,
-                        placeholder = "Поиск: артикул, SKU, заказ, название",
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    BoxWithConstraints(Modifier.fillMaxWidth()) {
-                        if (maxWidth < 430.dp) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.fillMaxWidth())
-                                AppSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
-                            }
-                        } else {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
-                                AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.widthIn(min = 138.dp))
-                            }
-                        }
+            FloatingSearchInput(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                placeholder = "Поиск: артикул, SKU, заказ, название",
+                modifier = Modifier.fillMaxWidth()
+            )
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                if (maxWidth < 430.dp) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.fillMaxWidth())
+                        AppSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
+                        AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.widthIn(min = 138.dp))
                     }
                 }
             }

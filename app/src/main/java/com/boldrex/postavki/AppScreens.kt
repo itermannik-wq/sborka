@@ -2626,6 +2626,7 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
     var showPreview by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf("ALL") }
+    var isSummaryExpanded by rememberSaveable { mutableStateOf(true) }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val checkedCount = state.items.count { it.status != PreAssemblyStatus.NOT_CHECKED }
@@ -2679,7 +2680,9 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
                     checked = checkedCount,
                     available = availableCount,
                     toTransfer = toTransferCount,
-                    notChecked = notCheckedCount
+                    notChecked = notCheckedCount,
+                    isExpanded = isSummaryExpanded,
+                    onToggleExpanded = { isSummaryExpanded = !isSummaryExpanded }
                 )
                 PreAssemblyControlPanel(
                     searchQuery = searchQuery,
@@ -2818,7 +2821,15 @@ private fun PreAssemblyErrorCard(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun PreAssemblySummaryPanel(total: Int, checked: Int, available: Int, toTransfer: Int, notChecked: Int) {
+private fun PreAssemblySummaryPanel(
+    total: Int,
+    checked: Int,
+    available: Int,
+    toTransfer: Int,
+    notChecked: Int,
+    isExpanded: Boolean,
+    onToggleExpanded: () -> Unit
+) {
     ModernCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2828,19 +2839,29 @@ private fun PreAssemblySummaryPanel(total: Int, checked: Int, available: Int, to
                     Text("Проверено $checked из $total позиций", color = MutedTextColor, fontSize = 13.sp)
                 }
                 StatusBadge("$checked/$total", tone = if (notChecked == 0) BadgeTone.Green else BadgeTone.Blue)
+                AppIconActionButton(
+                    icon = Icons.Outlined.ExpandMore,
+                    contentDescription = if (isExpanded) "Свернуть сводку" else "Развернуть сводку",
+                    onClick = onToggleExpanded,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .rotate(if (isExpanded) 180f else 0f)
+                )
             }
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                if (maxWidth < 420.dp) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PreAssemblyMetricRow("Есть на остатке", available.toString(), Color(0xFFE9F8EF), SuccessColor)
-                        PreAssemblyMetricRow("К перемещению", toTransfer.toString(), Color(0xFFFFE8E8), DangerColor)
-                        PreAssemblyMetricRow("Не проверено", notChecked.toString(), Color(0xFFF2F4F7), MutedTextColor)
-                    }
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PreAssemblyMetricRow("Есть", available.toString(), Color(0xFFE9F8EF), SuccessColor, Modifier.weight(1f))
-                        PreAssemblyMetricRow("Переместить", toTransfer.toString(), Color(0xFFFFE8E8), DangerColor, Modifier.weight(1f))
-                        PreAssemblyMetricRow("Не проверено", notChecked.toString(), Color(0xFFF2F4F7), MutedTextColor, Modifier.weight(1f))
+            AnimatedVisibility(visible = isExpanded, enter = fadeIn(), exit = fadeOut()) {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    if (maxWidth < 420.dp) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PreAssemblyMetricRow("Есть на остатке", available.toString(), Color(0xFFE9F8EF), SuccessColor)
+                            PreAssemblyMetricRow("К перемещению", toTransfer.toString(), Color(0xFFFFE8E8), DangerColor)
+                            PreAssemblyMetricRow("Не проверено", notChecked.toString(), Color(0xFFF2F4F7), MutedTextColor)
+                        }
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PreAssemblyMetricRow("Есть", available.toString(), Color(0xFFE9F8EF), SuccessColor, Modifier.weight(1f))
+                            PreAssemblyMetricRow("Переместить", toTransfer.toString(), Color(0xFFFFE8E8), DangerColor, Modifier.weight(1f))
+                            PreAssemblyMetricRow("Не проверено", notChecked.toString(), Color(0xFFF2F4F7), MutedTextColor, Modifier.weight(1f))
+                        }
                     }
                 }
             }

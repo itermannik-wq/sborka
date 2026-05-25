@@ -2638,7 +2638,7 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
                 ModernCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Список на перемещение", fontWeight = FontWeight.Bold)
                     Text(state.reportText)
-                    Text("Итого позиций: ${state.reportText.lines().count { it.trim().matches(Regex("\\d+\\..*")
+                    Text("Итого позиций: ${state.reportText.lines().count { it.trim().matches(Regex("\\d+\\..*")) }}")
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         AppSecondaryButton("Скопировать", onClick = { clipboard.setText(AnnotatedString(state.reportText)) })
                         AppPrimaryButton("Отправить через мессенджер", onClick = {

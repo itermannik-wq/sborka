@@ -82,6 +82,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -107,6 +109,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -135,6 +140,8 @@ private val DangerColor = Color(0xFFEF4444)
 
 private val CompactScreenBreakpoint = 380.dp
 private val NarrowScreenBreakpoint = 340.dp
+
+private enum class AppMode { MENU, SUPPLY, PRE_ASSEMBLY }
 
 @Composable
 private fun AppPrimaryButton(
@@ -678,9 +685,20 @@ private fun SearchField(
 
 @Composable
 fun AppRoot(vm: AppViewModel) {
+    var mode by rememberSaveable { mutableStateOf(AppMode.MENU) }
+    val preAssemblyVm = remember { PreAssemblyViewModel() }
     val state by vm.state.collectAsState()
-    val showStartupLoader = state.isBusy && state.shipments.isEmpty() && state.screen == AppScreen.SHIPMENTS
+    val preAssemblyState by preAssemblyVm.state.collectAsState()
+    val showStartupLoader = mode == AppMode.SUPPLY && state.isBusy && state.shipments.isEmpty() && state.screen == AppScreen.SHIPMENTS
     Box(Modifier.fillMaxSize().background(AppBackgroundGradient)) {
+        if (mode == AppMode.MENU) {
+            MainMenuScreen(onSupply = { mode = AppMode.SUPPLY }, onPreAssembly = { mode = AppMode.PRE_ASSEMBLY })
+            return@Box
+        }
+        if (mode == AppMode.PRE_ASSEMBLY) {
+            PreAssemblyScreen(state = preAssemblyState, vm = preAssemblyVm, onBack = { mode = AppMode.MENU })
+            return@Box
+        }
         if (showStartupLoader) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = AccentColor, strokeWidth = 3.dp, modifier = Modifier.size(32.dp))
@@ -2550,5 +2568,87 @@ private fun SettingsInfoRow(title: String, value: String) {
     ) {
         Text(title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(0.9f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(value, color = MutedTextColor, fontSize = 13.sp, textAlign = TextAlign.End, modifier = Modifier.weight(1.5f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+
+@Composable
+private fun MainMenuScreen(onSupply: () -> Unit, onPreAssembly: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text("Выбор режима", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MainTextColor)
+        ModernCard(Modifier.fillMaxWidth().clickable(onClick = onSupply)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Поставка на склады", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                Text("Основной режим работы с поставками и коробами", color = MutedTextColor)
+            }
+        }
+        ModernCard(Modifier.fillMaxWidth().clickable(onClick = onPreAssembly)) {
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Предварительная сборка", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                Text("Проверка товаров по заказам Ozon перед сборкой", color = MutedTextColor)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewModel, onBack: () -> Unit) {
+    var showPreview by remember { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, null) }
+            Text("Предварительная сборка Ozon", fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            IconButton(onClick = vm::loadOrders) { Icon(Icons.Outlined.FileDownload, null) }
+        }
+        AppPrimaryButton("Загрузить заказы Ozon", icon = Icons.Outlined.FileDownload, onClick = vm::loadOrders)
+        when {
+            state.isLoading -> Text("Загрузка заказов…")
+            state.error != null -> Text(state.error, color = DangerColor)
+            state.items.isEmpty() -> Text("Загрузите заказы Ozon для предварительной проверки", color = MutedTextColor)
+            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f, fill = false)) {
+                items(state.items) { item ->
+                    ModernCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Артикул: ${item.offerId}")
+                        Text("SKU Ozon: ${item.sku ?: "—"}")
+                        Text(item.name, fontWeight = FontWeight.SemiBold)
+                        Text("Нужно по заказам: ${item.requiredQuantity} шт.")
+                        var expanded by remember { mutableStateOf(false) }
+                        OutlinedButton(onClick = { expanded = true }) { Text("Статус: ${item.status.title}") }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            PreAssemblyStatus.values().forEach { status ->
+                                DropdownMenuItem(text = { Text(status.title) }, onClick = { vm.updateStatus(item.id, status); expanded = false })
+                            }
+                        }
+                        ModernTextField(item.transferQuantity, { vm.updateTransferQuantity(item.id, it) }, label = "К перемещению", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                        ModernTextField(item.comment, { vm.updateComment(item.id, it) }, label = "Комментарий")
+                    } }
+                }
+            }
+        }
+        AppPrimaryButton("Сформировать список для бухгалтера", onClick = { showPreview = vm.buildReport() })
+        AppSecondaryButton("Отправить через мессенджер", onClick = {
+            if (state.reportText.isNotBlank()) {
+                context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, state.reportText) }, "Отправить через"))
+            }
+        })
+        if (showPreview && state.reportText.isNotBlank()) {
+            Dialog(onDismissRequest = { showPreview = false }) {
+                ModernCard(Modifier.fillMaxWidth()) { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Список на перемещение", fontWeight = FontWeight.Bold)
+                    Text(state.reportText)
+                    Text("Итого позиций: ${state.reportText.lines().count { it.trim().matches(Regex("\\d+\\..*")
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppSecondaryButton("Скопировать", onClick = { clipboard.setText(AnnotatedString(state.reportText)) })
+                        AppPrimaryButton("Отправить через мессенджер", onClick = {
+                            context.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, state.reportText) }, "Отправить через"))
+                        })
+                    }
+                    AppSecondaryButton("Назад к проверке", onClick = { showPreview = false })
+                } }
+            }
+        }
+        state.message?.let { Text(it, color = DangerColor) }
     }
 }

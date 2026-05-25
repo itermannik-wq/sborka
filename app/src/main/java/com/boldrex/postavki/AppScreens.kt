@@ -2626,6 +2626,7 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
     var showPreview by remember { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf("ALL") }
+    var controlsExpanded by rememberSaveable { mutableStateOf(true) }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val checkedCount = state.items.count { it.status != PreAssemblyStatus.NOT_CHECKED }
@@ -2687,7 +2688,9 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
                     statusFilter = statusFilter,
                     onStatusFilterChange = { statusFilter = it },
                     onReload = vm::loadOrders,
-                    isLoading = state.isLoading
+                    isLoading = state.isLoading,
+                    expanded = controlsExpanded,
+                    onExpandedChange = { controlsExpanded = it }
                 )
                 if (filteredItems.isEmpty()) {
                     PreAssemblyNoResultsCard(onReset = { searchQuery = ""; statusFilter = "ALL" })
@@ -2870,26 +2873,43 @@ private fun PreAssemblyControlPanel(
     statusFilter: String,
     onStatusFilterChange: (String) -> Unit,
     onReload: () -> Unit,
-    isLoading: Boolean
+    isLoading: Boolean,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit
 ) {
     ModernCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            FloatingSearchInput(
-                value = searchQuery,
-                onValueChange = onSearchQueryChange,
-                placeholder = "Поиск: артикул, SKU, заказ, название",
-                modifier = Modifier.fillMaxWidth()
-            )
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                if (maxWidth < 430.dp) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.fillMaxWidth())
-                        AppSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
-                    }
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
-                        AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.widthIn(min = 138.dp))
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Поиск и фильтры", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                IconButton(onClick = { onExpandedChange(!expanded) }, modifier = Modifier.size(30.dp)) {
+                    Icon(
+                        imageVector = Icons.Outlined.ExpandMore,
+                        contentDescription = if (expanded) "Свернуть поиск и фильтры" else "Развернуть поиск и фильтры",
+                        tint = MutedTextColor,
+                        modifier = Modifier.rotate(if (expanded) 180f else 0f)
+                    )
+                }
+            }
+            AnimatedVisibility(visible = expanded) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FloatingSearchInput(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        placeholder = "Поиск: артикул, SKU, заказ, название",
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        if (maxWidth < 430.dp) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.fillMaxWidth())
+                                AppSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
+                            }
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
+                                AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.widthIn(min = 138.dp))
+                            }
+                        }
                     }
                 }
             }

@@ -3145,21 +3145,119 @@ private fun PreAssemblyActionPanel(
     onBuildReport: () -> Unit,
     onShareReport: () -> Unit
 ) {
-    ModernCard(Modifier.fillMaxWidth()) {
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(12.dp)) {
-            if (maxWidth < 430.dp) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppPrimaryButton("Список для бухгалтера", icon = Icons.Outlined.Description, enabled = hasItems, onClick = onBuildReport, modifier = Modifier.fillMaxWidth())
-                    AppSecondaryButton("Предпросмотр и отправка", icon = Icons.Outlined.CheckCircle, enabled = hasItems || hasReport, onClick = onShareReport, modifier = Modifier.fillMaxWidth())
-                }
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppPrimaryButton("Список для бухгалтера", icon = Icons.Outlined.Description, enabled = hasItems, onClick = onBuildReport, modifier = Modifier.weight(1f))
-                    AppSecondaryButton("Предпросмотр / отправить", icon = Icons.Outlined.CheckCircle, enabled = hasItems || hasReport, onClick = onShareReport, modifier = Modifier.weight(1f))
-                }
+    val panelShape = RoundedCornerShape(20.dp)
+
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(panelShape)
+            .background(Color.White)
+            .border(1.dp, Color(0xFFE7ECF5), panelShape)
+            .padding(10.dp)
+    ) {
+        if (maxWidth < 430.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                PreAssemblyMinimalActionButton(
+                    text = "Список для бухгалтера",
+                    icon = Icons.Outlined.Description,
+                    primary = true,
+                    enabled = hasItems,
+                    onClick = onBuildReport,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                PreAssemblyMinimalActionButton(
+                    text = "Предпросмотр / отправить",
+                    icon = Icons.Outlined.CheckCircle,
+                    enabled = hasItems || hasReport,
+                    onClick = onShareReport,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PreAssemblyMinimalActionButton(
+                    text = "Список для бухгалтера",
+                    icon = Icons.Outlined.Description,
+                    primary = true,
+                    enabled = hasItems,
+                    onClick = onBuildReport,
+                    modifier = Modifier.weight(1f)
+                )
+                PreAssemblyMinimalActionButton(
+                    text = "Предпросмотр / отправить",
+                    icon = Icons.Outlined.CheckCircle,
+                    enabled = hasItems || hasReport,
+                    onClick = onShareReport,
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }
+}
+
+@Composable
+private fun PreAssemblyMinimalActionButton(
+    text: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    primary: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(13.dp)
+    val buttonModifier = modifier
+        .defaultMinSize(minHeight = 40.dp)
+        .heightIn(min = 40.dp)
+
+    if (primary) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = buttonModifier,
+            shape = shape,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = AccentColor,
+                contentColor = Color.White,
+                disabledContainerColor = Color(0xFFE8ECF3),
+                disabledContentColor = SoftTextColor
+            )
+        ) {
+            PreAssemblyActionButtonContent(text = text, icon = icon)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = buttonModifier,
+            shape = shape,
+            border = BorderStroke(1.dp, Color(0xFFE1E7F0)),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = Color(0xFFFBFCFF),
+                contentColor = MainTextColor,
+                disabledContainerColor = Color(0xFFF5F7FB),
+                disabledContentColor = SoftTextColor
+            )
+        ) {
+            PreAssemblyActionButtonContent(text = text, icon = icon)
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyActionButtonContent(text: String, icon: ImageVector) {
+    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+    Spacer(Modifier.width(6.dp))
+    Text(
+        text = text,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 12.sp,
+        lineHeight = 14.sp,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
 }
 
 @Composable

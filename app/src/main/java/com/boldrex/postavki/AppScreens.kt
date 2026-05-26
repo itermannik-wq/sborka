@@ -2786,8 +2786,20 @@ private fun PreAssemblyHeader(onBack: () -> Unit, onRefresh: () -> Unit, isLoadi
         ) {
             AppIconActionButton(Icons.AutoMirrored.Outlined.ArrowBack, "Назад", onClick = onBack)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("Предварительная сборка Ozon", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("Ручная проверка наличия и списка на перемещение", color = MutedTextColor, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "Предварительная сборка Ozon",
+                    fontSize = 20.sp,
+                    lineHeight = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MainTextColor,
+                    maxLines = 2
+                )
+                Text(
+                    "Ручная проверка наличия и списка на перемещение",
+                    color = MutedTextColor,
+                    fontSize = 13.sp,
+                    maxLines = 3
+                )
             }
             AppIconActionButton(
                 icon = Icons.Outlined.FileDownload,

@@ -713,7 +713,13 @@ fun AppRoot(vm: AppViewModel) {
                 .fillMaxSize()
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            Header(state, vm)
+            Header(
+                state = state,
+                vm = vm,
+                onBackToModeSelect = {
+                    mode = AppMode.MENU
+                }
+            )
             AnimatedContent(
                 targetState = state.screen,
                 modifier = Modifier.weight(1f),
@@ -803,7 +809,11 @@ private fun AppMessage(text: String, onClose: () -> Unit) {
 }
 
 @Composable
-private fun Header(state: AppUiState, vm: AppViewModel) {
+private fun Header(
+    state: AppUiState,
+    vm: AppViewModel,
+    onBackToModeSelect: () -> Unit
+) {
     val isRoot = state.screen == AppScreen.SHIPMENTS
     val title = when (state.screen) {
         AppScreen.SHIPMENTS -> "Сборка поставок"
@@ -876,15 +886,33 @@ private fun Header(state: AppUiState, vm: AppViewModel) {
         }
 
         if (isRoot) {
-            IconButton(
-                onClick = vm::goSettings,
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(CircleShape)
-                    .background(Color.White)
-                    .border(1.dp, CardBorderColor.copy(alpha = 0.65f), CircleShape)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Outlined.Settings, contentDescription = "Настройки", tint = AccentColor)
+                OutlinedIconButton(
+                    onClick = onBackToModeSelect,
+                    modifier = Modifier.size(34.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, CardBorderColor.copy(alpha = 0.7f))
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = "Назад в выбор режима",
+                        tint = MainTextColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                IconButton(
+                    onClick = vm::goSettings,
+                    modifier = Modifier
+                        .size(50.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .border(1.dp, CardBorderColor.copy(alpha = 0.65f), CircleShape)
+                ) {
+                    Icon(Icons.Outlined.Settings, contentDescription = "Настройки", tint = AccentColor)
+                }
             }
         }
     }

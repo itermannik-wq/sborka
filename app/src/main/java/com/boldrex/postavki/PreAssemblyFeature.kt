@@ -85,8 +85,14 @@ class PreAssemblyViewModel(
         }
 
         val rows = toTransfer.mapIndexed { index, item ->
+            val reason = when (item.status) {
+                PreAssemblyStatus.NOT_AVAILABLE -> "Нет в наличии"
+                PreAssemblyStatus.NEED_TRANSFER -> "Недостаточное количество"
+                else -> ""
+            }
             """${index + 1}. Артикул: ${item.offerId}
 Товар: ${item.name}
+Причина перемещения: $reason
 Количество к перемещению: ${item.transferQuantity} шт.${if (item.comment.isBlank()) "" else "\nКомментарий: ${item.comment}"}
 """.trimIndent()
         }

@@ -97,7 +97,8 @@ object ExcelService {
     }
 
     fun generateXlsx(context: Context, info: ShipmentInfo, rows: List<ReportRow>, boxes: List<ReportBox>): File {
-        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir
+        val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir
+        val dir = File(baseDir, "reports")
         if (!dir.exists()) dir.mkdirs()
         val safeTitle = info.title.safeFilePart()
         val safeMarket = info.marketplace.safeFilePart()
@@ -127,7 +128,8 @@ object ExcelService {
     }
 
     fun generateCsv(context: Context, info: ShipmentInfo, rows: List<ReportRow>): File {
-        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir
+        val baseDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: context.filesDir
+        val dir = File(baseDir, "reports")
         if (!dir.exists()) dir.mkdirs()
         val file = File(dir, "${info.title.safeFilePart()}_${info.date}_${info.marketplace.safeFilePart()}.csv")
         val sb = StringBuilder("\uFEFF")

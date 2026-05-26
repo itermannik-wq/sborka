@@ -72,6 +72,10 @@ class MainActivity : ComponentActivity() {
 
     private fun dispatchShortcut(intent: Intent?) {
         val shortcutId = intent?.getStringExtra(Intent.EXTRA_SHORTCUT_ID)
-        vm.handleLauncherShortcut(intent?.action, shortcutId)
+        val trustedShortcut = shortcutId == SHORTCUT_ID_NEW_SHIPMENT || shortcutId == SHORTCUT_ID_IMPORT_REPORTS
+        val trustedAction = intent?.action?.takeIf { action ->
+            trustedShortcut && (action == ACTION_NEW_SHIPMENT || action == ACTION_IMPORT_REPORTS)
+        }
+        vm.handleLauncherShortcut(trustedAction, shortcutId)
     }
 }

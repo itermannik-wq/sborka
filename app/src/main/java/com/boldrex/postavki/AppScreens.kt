@@ -2780,14 +2780,27 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
 private fun PreAssemblyHeader(onBack: () -> Unit, onRefresh: () -> Unit, isLoading: Boolean) {
     ModernCard(Modifier.fillMaxWidth()) {
         Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             AppIconActionButton(Icons.AutoMirrored.Outlined.ArrowBack, "Назад", onClick = onBack)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("Предварительная сборка Ozon", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = MainTextColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("Ручная проверка наличия и списка на перемещение", color = MutedTextColor, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "Предварительная сборка Ozon",
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MainTextColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "Ручная проверка наличия и списка на перемещение",
+                    color = MutedTextColor,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
             AppIconActionButton(
                 icon = Icons.Outlined.FileDownload,

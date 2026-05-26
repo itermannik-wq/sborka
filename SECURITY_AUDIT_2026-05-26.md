@@ -1,57 +1,34 @@
 # Security audit report (2026-05-26)
 
 ## Scope
-- Static review of Android app manifest, file sharing configuration, and dependency declarations.
-- No dynamic penetration testing was performed.
+- Android application static security review (Manifest, file sharing, storage, import/export paths, and DB access).
+- Local checks executed in CI-like shell without Android SDK/emulator.
+- Dependency-level CVE scan was not performed in this run.
+
+## Checks performed
+- `./gradlew test` (failed due to missing Android SDK in environment).
+- `./gradlew lint` (failed due to missing Android SDK in environment).
+- Targeted static pattern scan for risky APIs and misconfigurations with `rg` (WebView/JS bridge, unsafe crypto, exported components, URI grants, debug logs, hardcoded secrets).
+- Manual code review for CSV/XLSX generation and import pipeline.
 
 ## Findings
 
-### 1) Broad implicit intent attack surface on exported activity (High)
-**Where:** `app/src/main/AndroidManifest.xml`
+### 1) CSV formula injection risk in generated reports (Medium)
+**Where:** `app/src/main/java/com/boldrex/postavki/ExcelService.kt`
 
-`MainActivity` is exported and declares custom implicit intent actions:
-- `com.boldrex.postavki.action.NEW_SHIPMENT`
-- `com.boldrex.postavki.action.IMPORT_REPORTS`
+User-controlled text fields (e.g., product names, articles, barcode-like strings) are exported to CSV. Spreadsheet applications may execute values beginning with `=`, `+`, `-`, or `@` as formulas.
 
-Any third-party app can send these actions unless guarded by permission checks or explicit caller validation. This can enable intent spoofing / unauthorized workflow triggering.
+**Risk:** Opening exported CSV in Excel/LibreOffice can trigger formula execution (CSV Injection), including data exfiltration tricks via external references.
 
-**Risk:** Forced UI state changes, untrusted data flow into app logic, social engineering surfaces.
+**Remediation:** Prefix dangerous leading characters with `'` before CSV escaping.
 
-**Recommendation:**
-- Prefer explicit intents from trusted packages.
-- Add custom signature-level permission for these actions and enforce it.
-- Validate incoming intent extras and caller identity before executing business logic.
+## Positive observations
+- `android:allowBackup` is disabled (`false`).
+- `FileProvider` is non-exported and configured with narrowed `reports/` directories.
+- No hardcoded Ozon API credentials found (`CLIENT_ID` / `API_KEY` empty placeholders).
+- Room queries are parameterized; obvious SQL injection vectors were not identified.
 
-### 2) FileProvider paths are overly broad (Medium)
-**Where:** `app/src/main/res/xml/file_paths.xml`
-
-The provider exposes `.` for:
-- `external-files-path`
-- `files-path`
-- `cache-path`
-
-Although provider is non-exported, URI grants from app code may unintentionally expose more files than needed.
-
-**Risk:** Excessive data disclosure if a shared URI is abused or if share-flow mistakes occur.
-
-**Recommendation:** Restrict paths to minimal subdirectories used for reports only (e.g., `reports/`).
-
-### 3) Backups enabled by default without exclusions (Medium)
-**Where:** `app/src/main/AndroidManifest.xml`, `app/src/main/res/xml/backup_rules.xml`, `app/src/main/res/xml/data_extraction_rules.xml`
-
-`android:allowBackup="true"` is enabled. Rules files are mostly default templates with no explicit exclusions.
-
-**Risk:** App-local operational data may be backed up/restored unexpectedly (depends on Android version and transport), increasing data exposure risk.
-
-**Recommendation:**
-- If business data is sensitive, set `allowBackup=false`.
-- Or define strict include/exclude rules and exclude operational/PII-like datasets.
-
-## What was *not* found
-- Hardcoded API secrets in `OzonApiConfig.kt` (values are empty placeholders).
-
-## Next steps
-1. Lock down exported intent handlers with permissions + validation.
-2. Narrow FileProvider to least-privilege paths.
-3. Harden backup/data extraction policy.
-4. Run dependency CVE scan in CI (OWASP Dependency-Check or OSV) on every PR.
+## Residual risks / recommendations
+1. Add dependency vulnerability scanning in CI (e.g., OWASP Dependency-Check, OSV-Scanner, or Gradle plugin equivalent).
+2. Add Android-specific static checks in CI where SDK is available (`lintVitalRelease`, `detekt`, SAST).
+3. Keep API keys outside source code (BuildConfig/local secure storage/remote config) and enforce secret scanning in CI.

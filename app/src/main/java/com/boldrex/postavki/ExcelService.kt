@@ -505,5 +505,8 @@ object ExcelService {
     private fun String.safeFilePart(): String = replace(Regex("[^А-Яа-яA-Za-z0-9._-]+"), "_").trim('_').ifBlank { "Postavka" }
     private fun xml(s: String): String = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
     private fun html(s: String): String = s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
-    private fun csv(s: String): String = if (s.any { it == ';' || it == '"' || it == '\n' }) "\"${s.replace("\"", "\"\"")}\"" else s
+    private fun csv(s: String): String {
+        val safe = if (s.startsWith("=") || s.startsWith("+") || s.startsWith("-") || s.startsWith("@")) "'${s}" else s
+        return if (safe.any { it == ';' || it == '"' || it == '\n' }) "\"${safe.replace("\"", "\"\"")}\"" else safe
+    }
 }

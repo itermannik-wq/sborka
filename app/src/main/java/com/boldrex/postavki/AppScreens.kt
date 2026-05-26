@@ -49,6 +49,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -2624,6 +2625,7 @@ private fun MainMenuScreen(onSupply: () -> Unit, onPreAssembly: () -> Unit) {
 @Composable
 private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewModel, onBack: () -> Unit) {
     var showPreview by remember { mutableStateOf(false) }
+    var showControls by rememberSaveable { mutableStateOf(false) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf("ALL") }
     var isSummaryExpanded by rememberSaveable { mutableStateOf(true) }
@@ -2633,6 +2635,7 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
     val availableCount = state.items.count { it.status == PreAssemblyStatus.AVAILABLE }
     val toTransferCount = state.items.count { it.status == PreAssemblyStatus.NOT_AVAILABLE || it.status == PreAssemblyStatus.NEED_TRANSFER }
     val notCheckedCount = state.items.size - checkedCount
+    val hasActiveFilters = searchQuery.isNotBlank() || statusFilter != "ALL"
     val filteredItems = state.items.filter { item ->
         val byStatus = statusFilter == "ALL" || item.status.name == statusFilter
         val query = searchQuery.trim()
@@ -2662,66 +2665,77 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
         )
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        PreAssemblyHeader(onBack = onBack, onRefresh = vm::loadOrders, isLoading = state.isLoading)
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            PreAssemblyHeader(onBack = onBack, onRefresh = vm::loadOrders, isLoading = state.isLoading)
 
-        when {
-            state.isLoading -> PreAssemblyLoadingCard()
-            state.error != null -> PreAssemblyErrorCard(message = state.error, onRetry = vm::loadOrders)
-            state.items.isEmpty() -> PreAssemblyEmptyCard(onLoad = vm::loadOrders)
-            else -> {
-                PreAssemblySummaryPanel(
-                    total = state.items.size,
-                    checked = checkedCount,
-                    available = availableCount,
-                    toTransfer = toTransferCount,
-                    notChecked = notCheckedCount,
-                    isExpanded = isSummaryExpanded,
-                    onToggleExpanded = { isSummaryExpanded = !isSummaryExpanded }
-                )
-                PreAssemblyControlPanel(
-                    searchQuery = searchQuery,
-                    onSearchQueryChange = { searchQuery = it },
-                    statusFilter = statusFilter,
-                    onStatusFilterChange = { statusFilter = it },
-                    onReload = vm::loadOrders,
-                    isLoading = state.isLoading
-                )
-                if (filteredItems.isEmpty()) {
-                    PreAssemblyNoResultsCard(onReset = { searchQuery = ""; statusFilter = "ALL" })
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(bottom = 6.dp)
-                    ) {
-                        items(filteredItems, key = { it.id }) { item ->
-                            PreAssemblyItemCard(item = item, vm = vm)
+            when {
+                state.isLoading -> PreAssemblyLoadingCard()
+                state.error != null -> PreAssemblyErrorCard(message = state.error, onRetry = vm::loadOrders)
+                state.items.isEmpty() -> PreAssemblyEmptyCard(onLoad = vm::loadOrders)
+                else -> {
+                    PreAssemblySummaryPanel(
+                        total = state.items.size,
+                        checked = checkedCount,
+                        available = availableCount,
+                        toTransfer = toTransferCount,
+                        notChecked = notCheckedCount,
+                        isExpanded = isSummaryExpanded,
+                        onToggleExpanded = { isSummaryExpanded = !isSummaryExpanded }
+                    )
+                    if (filteredItems.isEmpty()) {
+                        PreAssemblyNoResultsCard(onReset = { searchQuery = ""; statusFilter = "ALL" })
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = 216.dp)
+                        ) {
+                            items(filteredItems, key = { it.id }) { item ->
+                                PreAssemblyItemCard(item = item, vm = vm)
+                            }
                         }
                     }
                 }
+            }
+
+            state.message?.let { message ->
+                PreAssemblyMessageCard(message = message)
             }
         }
 
         PreAssemblyActionPanel(
             hasItems = state.items.isNotEmpty(),
             hasReport = state.reportText.isNotBlank(),
+            hasActiveFilters = hasActiveFilters,
+            onOpenControls = { showControls = true },
             onBuildReport = { showPreview = vm.buildReport() },
             onShareReport = {
                 if (vm.buildReport()) {
                     showPreview = true
                 }
-            }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 16.dp, bottom = 18.dp)
         )
+    }
 
-        state.message?.let { message ->
-            PreAssemblyMessageCard(message = message)
-        }
+    if (showControls) {
+        PreAssemblyControlsDialog(
+            searchQuery = searchQuery,
+            onSearchQueryChange = { searchQuery = it },
+            statusFilter = statusFilter,
+            onStatusFilterChange = { statusFilter = it },
+            onReload = vm::loadOrders,
+            isLoading = state.isLoading,
+            onDismiss = { showControls = false }
+        )
     }
 
     if (showPreview && state.reportText.isNotBlank()) {
@@ -2830,25 +2844,76 @@ private fun PreAssemblySummaryPanel(
     isExpanded: Boolean,
     onToggleExpanded: () -> Unit
 ) {
-    ModernCard(Modifier.fillMaxWidth()) {
+    val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isExpanded) 180f else 0f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
+        label = "pre_assembly_summary_arrow"
+    )
+    val cardScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isExpanded) 1f else 0.985f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 420f),
+        label = "pre_assembly_summary_scale"
+    )
+
+    ModernCard(
+        Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = cardScale
+                scaleY = cardScale
+            }
+    ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable(onClick = onToggleExpanded)
+                    .padding(2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 AppIconBubble(Icons.Outlined.CheckCircle, tint = SuccessColor, background = Color(0xFFE9F8EF), modifier = Modifier.size(42.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Сводка проверки", fontWeight = FontWeight.Bold, color = MainTextColor, fontSize = 17.sp)
                     Text("Проверено $checked из $total позиций", color = MutedTextColor, fontSize = 13.sp)
                 }
                 StatusBadge("$checked/$total", tone = if (notChecked == 0) BadgeTone.Green else BadgeTone.Blue)
-                AppIconActionButton(
-                    icon = Icons.Outlined.ExpandMore,
-                    contentDescription = if (isExpanded) "Свернуть сводку" else "Развернуть сводку",
-                    onClick = onToggleExpanded,
+                Box(
                     modifier = Modifier
-                        .size(34.dp)
-                        .rotate(if (isExpanded) 180f else 0f)
-                )
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .border(1.dp, CardBorderColor, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Outlined.ExpandMore,
+                        contentDescription = if (isExpanded) "Свернуть сводку" else "Развернуть сводку",
+                        tint = MainTextColor,
+                        modifier = Modifier
+                            .size(22.dp)
+                            .rotate(arrowRotation)
+                    )
+                }
             }
-            AnimatedVisibility(visible = isExpanded, enter = fadeIn(), exit = fadeOut()) {
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically(
+                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 390f),
+                    expandFrom = Alignment.Top
+                ) + fadeIn(animationSpec = tween(180)) + scaleIn(
+                    initialScale = 0.96f,
+                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 420f)
+                ),
+                exit = shrinkVertically(
+                    animationSpec = tween(190),
+                    shrinkTowards = Alignment.Top
+                ) + fadeOut(animationSpec = tween(120)) + scaleOut(
+                    targetScale = 0.96f,
+                    animationSpec = tween(160)
+                )
+            ) {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     if (maxWidth < 420.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2891,27 +2956,26 @@ private fun PreAssemblyControlPanel(
     statusFilter: String,
     onStatusFilterChange: (String) -> Unit,
     onReload: () -> Unit,
-    isLoading: Boolean
+    isLoading: Boolean,
+    modifier: Modifier = Modifier
 ) {
-    ModernCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            FloatingSearchInput(
-                value = searchQuery,
-                onValueChange = onSearchQueryChange,
-                placeholder = "Поиск: артикул, SKU, заказ, название",
-                modifier = Modifier.fillMaxWidth()
-            )
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                if (maxWidth < 430.dp) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.fillMaxWidth())
-                        AppSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
-                    }
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
-                        AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.widthIn(min = 138.dp))
-                    }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FloatingSearchInput(
+            value = searchQuery,
+            onValueChange = onSearchQueryChange,
+            placeholder = "Поиск: артикул, SKU, заказ, название",
+            modifier = Modifier.fillMaxWidth()
+        )
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            if (maxWidth < 430.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.fillMaxWidth())
+                    AppSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
+                    AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.widthIn(min = 138.dp))
                 }
             }
         }
@@ -2967,86 +3031,127 @@ private fun PreAssemblyFilterDropdown(selectedKey: String, onSelected: (String) 
 
 @Composable
 private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel) {
-    val needsTransfer = item.status == PreAssemblyStatus.NOT_AVAILABLE || item.status == PreAssemblyStatus.NEED_TRANSFER
+    val hasComment = item.comment.isNotBlank()
+    val showTransferInput = item.status == PreAssemblyStatus.NOT_AVAILABLE || item.status == PreAssemblyStatus.NEED_TRANSFER
+    var showEditor by rememberSaveable(item.id) { mutableStateOf(false) }
+    var showStatusPicker by rememberSaveable(item.id) { mutableStateOf(false) }
+
     ModernCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(15.dp))
+                        .size(38.dp)
+                        .clip(RoundedCornerShape(13.dp))
                         .background(PreAssemblyStatusBackground(item.status)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = PreAssemblyStatusColor(item.status), modifier = Modifier.size(24.dp))
+                    Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = PreAssemblyStatusColor(item.status), modifier = Modifier.size(20.dp))
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(item.name, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 17.sp, lineHeight = 21.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        item.name,
+                        color = MainTextColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        lineHeight = 18.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        StatusBadge("Арт. ${item.offerId}", tone = BadgeTone.Blue)
-                        StatusBadge("${item.requiredQuantity} шт.", tone = BadgeTone.Gray)
+                        PreAssemblyMetaChip("Арт. ${item.offerId}")
+                        PreAssemblyMetaChip("${item.requiredQuantity} шт.", background = Color(0xFFF4F6FB), contentColor = MainTextColor)
+                        if (!item.sku.isNullOrBlank()) {
+                            PreAssemblyMetaChip("SKU", background = Color(0xFFF4F6FB), contentColor = MutedTextColor)
+                        }
                     }
                 }
                 PreAssemblyStatusPill(item.status)
             }
 
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFFF7F9FF))
-                    .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+            AnimatedVisibility(
+                visible = showTransferInput || hasComment,
+                enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = tween(210)),
+                exit = fadeOut(animationSpec = tween(130)) + shrinkVertically(animationSpec = tween(170))
             ) {
-                PreAssemblyInfoLine("SKU Ozon", item.sku ?: "—")
-                PreAssemblyInfoLine("Заказы", item.orderId)
-                PreAssemblyInfoLine("Нужно по заказам", "${item.requiredQuantity} шт.")
-            }
-
-            PreAssemblyStatusDropdown(selected = item.status, onSelected = { vm.updateStatus(item.id, it) })
-
-            BoxWithConstraints(Modifier.fillMaxWidth()) {
-                if (maxWidth < 460.dp) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ModernTextField(
-                            item.transferQuantity,
-                            { vm.updateTransferQuantity(item.id, it) },
-                            label = if (needsTransfer) "Сколько переместить" else "К перемещению",
-                            placeholder = "0",
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        ModernTextField(
-                            item.comment,
-                            { vm.updateComment(item.id, it) },
-                            label = "Комментарий",
-                            placeholder = "Например: нет на полке / нужно со склада",
-                            singleLine = false,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFFF8FAFF))
+                        .border(1.dp, CardBorderColor.copy(alpha = 0.65f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (showTransferInput && hasComment) 6.dp else 0.dp)
+                ) {
+                    if (showTransferInput) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                "К перемещению",
+                                modifier = Modifier.weight(1f),
+                                color = MutedTextColor,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            PreAssemblyCompactQuantityField(
+                                value = item.transferQuantity,
+                                onValueChange = { vm.updateTransferQuantity(item.id, it) },
+                                modifier = Modifier.width(92.dp)
+                            )
+                        }
                     }
-                } else {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ModernTextField(
-                            item.transferQuantity,
-                            { vm.updateTransferQuantity(item.id, it) },
-                            label = if (needsTransfer) "Сколько переместить" else "К перемещению",
-                            placeholder = "0",
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.weight(0.8f)
-                        )
-                        ModernTextField(
-                            item.comment,
-                            { vm.updateComment(item.id, it) },
-                            label = "Комментарий",
-                            placeholder = "Примечание",
-                            modifier = Modifier.weight(1.2f)
+                    if (hasComment) {
+                        Text(
+                            "Комментарий: ${item.comment}",
+                            color = MutedTextColor,
+                            fontSize = 12.sp,
+                            lineHeight = 15.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
             }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PreAssemblyCompactCardButton(
+                    text = "Статус",
+                    icon = Icons.Outlined.CheckCircle,
+                    modifier = Modifier.weight(1f),
+                    onClick = { showStatusPicker = true }
+                )
+                PreAssemblyCompactCardButton(
+                    text = "Карточка",
+                    icon = Icons.Outlined.Description,
+                    primary = true,
+                    modifier = Modifier.weight(1f),
+                    onClick = { showEditor = true }
+                )
+            }
         }
+    }
+
+    if (showStatusPicker) {
+        PreAssemblyStatusPickerDialog(
+            selected = item.status,
+            onSelected = {
+                vm.updateStatus(item.id, it)
+                showStatusPicker = false
+            },
+            onDismiss = { showStatusPicker = false }
+        )
+    }
+
+    if (showEditor) {
+        PreAssemblyItemEditorDialog(
+            item = item,
+            vm = vm,
+            onDismiss = { showEditor = false }
+        )
     }
 }
 
@@ -3138,57 +3243,39 @@ private fun PreAssemblyNoResultsCard(onReset: () -> Unit) {
     }
 }
 
-@Composable
-private fun PreAssemblyActionPanel(
-    hasItems: Boolean,
-    hasReport: Boolean,
-    onBuildReport: () -> Unit,
-    onShareReport: () -> Unit
-) {
-    val panelShape = RoundedCornerShape(20.dp)
 
-    BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(panelShape)
-            .background(Color.White)
-            .border(1.dp, Color(0xFFE7ECF5), panelShape)
-            .padding(10.dp)
-    ) {
-        if (maxWidth < 430.dp) {
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                PreAssemblyMinimalActionButton(
-                    text = "Список для бухгалтера",
-                    icon = Icons.Outlined.Description,
-                    primary = true,
-                    enabled = hasItems,
-                    onClick = onBuildReport,
+@Composable
+private fun PreAssemblyControlsDialog(
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    statusFilter: String,
+    onStatusFilterChange: (String) -> Unit,
+    onReload: () -> Unit,
+    isLoading: Boolean,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        ModernCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Поиск и фильтр", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Панель вынесена в отдельное окно, чтобы не занимать место на экране.", color = MutedTextColor, fontSize = 13.sp)
+                    }
+                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                }
+                PreAssemblyControlPanel(
+                    searchQuery = searchQuery,
+                    onSearchQueryChange = onSearchQueryChange,
+                    statusFilter = statusFilter,
+                    onStatusFilterChange = onStatusFilterChange,
+                    onReload = onReload,
+                    isLoading = isLoading,
                     modifier = Modifier.fillMaxWidth()
-                )
-                PreAssemblyMinimalActionButton(
-                    text = "Предпросмотр / отправить",
-                    icon = Icons.Outlined.CheckCircle,
-                    enabled = hasItems || hasReport,
-                    onClick = onShareReport,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PreAssemblyMinimalActionButton(
-                    text = "Список для бухгалтера",
-                    icon = Icons.Outlined.Description,
-                    primary = true,
-                    enabled = hasItems,
-                    onClick = onBuildReport,
-                    modifier = Modifier.weight(1f)
-                )
-                PreAssemblyMinimalActionButton(
-                    text = "Предпросмотр / отправить",
-                    icon = Icons.Outlined.CheckCircle,
-                    enabled = hasItems || hasReport,
-                    onClick = onShareReport,
-                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -3196,18 +3283,293 @@ private fun PreAssemblyActionPanel(
 }
 
 @Composable
-private fun PreAssemblyMinimalActionButton(
+private fun PreAssemblyStatusPickerDialog(
+    selected: PreAssemblyStatus,
+    onSelected: (PreAssemblyStatus) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        ModernCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Статус позиции", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("Выберите результат проверки для товара.", color = MutedTextColor, fontSize = 13.sp)
+                    }
+                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                }
+                PreAssemblyStatus.values().forEach { status ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (status == selected) PreAssemblyStatusBackground(status) else Color.White)
+                            .border(1.dp, if (status == selected) PreAssemblyStatusColor(status).copy(alpha = 0.42f) else CardBorderColor, RoundedCornerShape(16.dp))
+                            .clickable {
+                                onSelected(status)
+                            }
+                            .padding(horizontal = 12.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        PreAssemblyStatusDot(status)
+                        Column(Modifier.weight(1f)) {
+                            Text(status.title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(PreAssemblyStatusHint(status), color = MutedTextColor, fontSize = 12.sp)
+                        }
+                        if (status == selected) {
+                            Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = PreAssemblyStatusColor(status))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyItemEditorDialog(
+    item: PreAssemblyItem,
+    vm: PreAssemblyViewModel,
+    onDismiss: () -> Unit
+) {
+    val needsTransfer = item.status == PreAssemblyStatus.NOT_AVAILABLE || item.status == PreAssemblyStatus.NEED_TRANSFER
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        ModernCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Карточка заказа", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text(item.name, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    }
+                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PreAssemblyMetaChip("Арт. ${item.offerId}")
+                    PreAssemblyMetaChip("${item.requiredQuantity} шт.", background = Color(0xFFF4F6FB), contentColor = MainTextColor)
+                    PreAssemblyStatusPill(item.status)
+                }
+
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFFF7F9FF))
+                        .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PreAssemblyInfoLine("SKU Ozon", item.sku ?: "—")
+                    PreAssemblyInfoLine("Заказы", item.orderId)
+                    PreAssemblyInfoLine("Нужно по заказам", "${item.requiredQuantity} шт.")
+                }
+
+                PreAssemblyStatusDropdown(selected = item.status, onSelected = { vm.updateStatus(item.id, it) })
+
+                AnimatedVisibility(
+                    visible = needsTransfer,
+                    enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = tween(210)),
+                    exit = fadeOut(animationSpec = tween(130)) + shrinkVertically(animationSpec = tween(170))
+                ) {
+                    ModernTextField(
+                        item.transferQuantity,
+                        { vm.updateTransferQuantity(item.id, it) },
+                        label = "Сколько переместить",
+                        placeholder = "0",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                ModernTextField(
+                    item.comment,
+                    { vm.updateComment(item.id, it) },
+                    label = "Комментарий",
+                    placeholder = "Например: нет на полке / нужно со склада",
+                    singleLine = false,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppSecondaryButton("Закрыть", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
+                    AppPrimaryButton("Готово", icon = Icons.Outlined.CheckCircle, onClick = onDismiss, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyMetaChip(
     text: String,
+    background: Color = SoftBlueColor,
+    contentColor: Color = AccentColor
+) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(background)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text(text, color = contentColor, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun PreAssemblyCompactQuantityField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = { raw -> onValueChange(raw.filter { it.isDigit() }.take(5)) },
+        modifier = modifier
+            .height(42.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White)
+            .border(1.4.dp, AccentColor, RoundedCornerShape(12.dp))
+            .padding(horizontal = 8.dp),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        textStyle = androidx.compose.ui.text.TextStyle(
+            color = MainTextColor,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 14.sp,
+            textAlign = TextAlign.End
+        ),
+        decorationBox = { innerTextField ->
+            Row(
+                Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    if (value.isBlank()) {
+                        Text(
+                            "0",
+                            color = SoftTextColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            textAlign = TextAlign.End
+                        )
+                    }
+                    innerTextField()
+                }
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    "шт.",
+                    color = MainTextColor,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 11.sp,
+                    maxLines = 1
+                )
+            }
+        }
+    )
+}
+
+@Composable
+private fun PreAssemblyCompactInfoLine(title: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun PreAssemblyCompactCardButton(
+    text: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    primary: Boolean = false,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(14.dp)
+    if (primary) {
+        Button(
+            onClick = onClick,
+            modifier = modifier.height(40.dp),
+            shape = shape,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(text, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = modifier.height(40.dp),
+            shape = shape,
+            border = BorderStroke(1.dp, CardBorderColor),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = MainTextColor)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(text, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyActionPanel(
+    hasItems: Boolean,
+    hasReport: Boolean,
+    hasActiveFilters: Boolean,
+    onOpenControls: () -> Unit,
+    onBuildReport: () -> Unit,
+    onShareReport: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        PreAssemblyMinimalActionButton(
+            icon = Icons.Outlined.Search,
+            primary = hasActiveFilters,
+            onClick = onOpenControls
+        )
+        PreAssemblyMinimalActionButton(
+            icon = Icons.Outlined.Description,
+            primary = true,
+            enabled = hasItems,
+            onClick = onBuildReport
+        )
+        PreAssemblyMinimalActionButton(
+            icon = Icons.Outlined.CheckCircle,
+            enabled = hasItems || hasReport,
+            onClick = onShareReport
+        )
+    }
+}
+
+@Composable
+private fun PreAssemblyMinimalActionButton(
     icon: ImageVector,
     modifier: Modifier = Modifier,
     primary: Boolean = false,
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(13.dp)
+    val shape = CircleShape
     val buttonModifier = modifier
-        .defaultMinSize(minHeight = 40.dp)
-        .heightIn(min = 40.dp)
+        .size(56.dp)
+        .shadow(10.dp, shape, clip = false)
 
     if (primary) {
         Button(
@@ -3215,7 +3577,7 @@ private fun PreAssemblyMinimalActionButton(
             enabled = enabled,
             modifier = buttonModifier,
             shape = shape,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            contentPadding = PaddingValues(0.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = AccentColor,
                 contentColor = Color.White,
@@ -3223,7 +3585,7 @@ private fun PreAssemblyMinimalActionButton(
                 disabledContentColor = SoftTextColor
             )
         ) {
-            PreAssemblyActionButtonContent(text = text, icon = icon)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
         }
     } else {
         OutlinedButton(
@@ -3232,32 +3594,17 @@ private fun PreAssemblyMinimalActionButton(
             modifier = buttonModifier,
             shape = shape,
             border = BorderStroke(1.dp, Color(0xFFE1E7F0)),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            contentPadding = PaddingValues(0.dp),
             colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = Color(0xFFFBFCFF),
+                containerColor = Color.White,
                 contentColor = MainTextColor,
                 disabledContainerColor = Color(0xFFF5F7FB),
                 disabledContentColor = SoftTextColor
             )
         ) {
-            PreAssemblyActionButtonContent(text = text, icon = icon)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
         }
     }
-}
-
-@Composable
-private fun PreAssemblyActionButtonContent(text: String, icon: ImageVector) {
-    Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
-    Spacer(Modifier.width(6.dp))
-    Text(
-        text = text,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 12.sp,
-        lineHeight = 14.sp,
-        textAlign = TextAlign.Center,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis
-    )
 }
 
 @Composable

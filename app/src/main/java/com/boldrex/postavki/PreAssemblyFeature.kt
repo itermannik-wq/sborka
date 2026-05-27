@@ -65,8 +65,28 @@ class PreAssemblyViewModel(
         }
     }
 
-    fun updateStatus(id: String, status: PreAssemblyStatus) = updateItem(id) { it.copy(status = status) }
-    fun updateTransferQuantity(id: String, value: String) = updateItem(id) { it.copy(transferQuantity = value.filter(Char::isDigit)) }
+    fun updateStatus(id: String, status: PreAssemblyStatus) = updateItem(id) { item ->
+        when (status) {
+            PreAssemblyStatus.NOT_CHECKED -> item.copy(
+                status = status,
+                transferQuantity = ""
+            )
+            PreAssemblyStatus.AVAILABLE -> item.copy(
+                status = status,
+                transferQuantity = "0"
+            )
+            PreAssemblyStatus.NOT_AVAILABLE -> item.copy(
+                status = status,
+                transferQuantity = item.requiredQuantity.toString()
+            )
+            PreAssemblyStatus.NEED_TRANSFER -> item.copy(
+                status = status,
+                transferQuantity = ""
+            )
+        }
+    }
+
+    fun updateTransferQuantity(id: String, value: String) = updateItem(id) { it.copy(transferQuantity = value.filter(Char::isDigit).take(5)) }
     fun updateComment(id: String, value: String) = updateItem(id) { it.copy(comment = value) }
 
     fun buildReport(): Boolean {

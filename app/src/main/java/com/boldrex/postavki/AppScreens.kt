@@ -138,6 +138,7 @@ private val InputContainerColor = Color(0xFFF7F9FF)
 private val SoftBlueColor = Color(0xFFEEF4FF)
 private val SuccessColor = Color(0xFF16A34A)
 private val DangerColor = Color(0xFFEF4444)
+private val WarningColor = Color(0xFFF97316)
 
 private val CompactScreenBreakpoint = 380.dp
 private val NarrowScreenBreakpoint = 340.dp
@@ -2885,6 +2886,9 @@ private fun PreAssemblySummaryPanel(
     isExpanded: Boolean,
     onToggleExpanded: () -> Unit
 ) {
+    val progress = if (total == 0) 0f else checked.toFloat() / total.toFloat()
+    val progressPercent = (progress * 100).toInt()
+    val progressColor = if (notChecked == 0 && total > 0) SuccessColor else AccentColor
     val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (isExpanded) 180f else 0f,
         animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
@@ -2917,9 +2921,9 @@ private fun PreAssemblySummaryPanel(
                 AppIconBubble(Icons.Outlined.CheckCircle, tint = SuccessColor, background = Color(0xFFE9F8EF), modifier = Modifier.size(42.dp))
                 Column(Modifier.weight(1f)) {
                     Text("Сводка проверки", fontWeight = FontWeight.Bold, color = MainTextColor, fontSize = 17.sp)
-                    Text("Проверено $checked из $total позиций", color = MutedTextColor, fontSize = 13.sp)
+                    Text("Проверено: $checked из $total позиций — $progressPercent%", color = MutedTextColor, fontSize = 13.sp)
                 }
-                StatusBadge("$checked/$total", tone = if (notChecked == 0) BadgeTone.Green else BadgeTone.Blue)
+                StatusBadge("$progressPercent%", tone = if (notChecked == 0 && total > 0) BadgeTone.Green else BadgeTone.Blue)
                 Box(
                     modifier = Modifier
                         .size(36.dp)
@@ -2938,6 +2942,7 @@ private fun PreAssemblySummaryPanel(
                     )
                 }
             }
+            PreAssemblyProgressBar(progress = progress, color = progressColor)
             AnimatedVisibility(
                 visible = isExpanded,
                 enter = expandVertically(
@@ -2972,6 +2977,25 @@ private fun PreAssemblySummaryPanel(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PreAssemblyProgressBar(progress: Float, color: Color) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(9.dp)
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0xFFE8EDF5))
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                .height(9.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(color)
+        )
     }
 }
 
@@ -3075,11 +3099,21 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel)
     val hasComment = item.comment.isNotBlank()
     val showTransferInput = item.status == PreAssemblyStatus.NOT_AVAILABLE || item.status == PreAssemblyStatus.NEED_TRANSFER
     var showEditor by rememberSaveable(item.id) { mutableStateOf(false) }
-    var showStatusPicker by rememberSaveable(item.id) { mutableStateOf(false) }
+    var showCommentEditor by rememberSaveable(item.id) { mutableStateOf(false) }
 
-    ModernCard(Modifier.fillMaxWidth()) {
+    ModernCard(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, PreAssemblyStatusColor(item.status).copy(alpha = 0.22f), RoundedCornerShape(24.dp))
+    ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 5.dp, height = 66.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(PreAssemblyStatusColor(item.status).copy(alpha = 0.82f))
+                )
                 Box(
                     modifier = Modifier
                         .size(38.dp)
@@ -3089,7 +3123,13 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel)
                 ) {
                     Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = PreAssemblyStatusColor(item.status), modifier = Modifier.size(20.dp))
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable { showEditor = true },
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text(
                         item.name,
                         color = MainTextColor,
@@ -3141,49 +3181,72 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel)
                             PreAssemblyCompactQuantityField(
                                 value = item.transferQuantity,
                                 onValueChange = { vm.updateTransferQuantity(item.id, it) },
-                                modifier = Modifier.width(92.dp)
+                                modifier = Modifier.widthIn(min = 118.dp, max = 136.dp)
                             )
                         }
                     }
                     if (hasComment) {
-                        Text(
-                            "Комментарий: ${item.comment}",
-                            color = MutedTextColor,
-                            fontSize = 12.sp,
-                            lineHeight = 15.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(Icons.Outlined.Description, contentDescription = null, tint = AccentColor, modifier = Modifier.size(16.dp))
+                            Text(
+                                item.comment,
+                                color = MutedTextColor,
+                                fontSize = 12.sp,
+                                lineHeight = 15.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PreAssemblyCompactCardButton(
-                    text = "Статус",
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                PreAssemblyQuickStatusButton(
                     icon = Icons.Outlined.CheckCircle,
-                    modifier = Modifier.weight(1f),
-                    onClick = { showStatusPicker = true }
+                    contentDescription = "Есть",
+                    color = SuccessColor,
+                    selected = item.status == PreAssemblyStatus.AVAILABLE,
+                    onClick = { vm.updateStatus(item.id, PreAssemblyStatus.AVAILABLE) }
                 )
-                PreAssemblyCompactCardButton(
-                    text = "Карточка",
-                    icon = Icons.Outlined.Description,
-                    primary = true,
-                    modifier = Modifier.weight(1f),
-                    onClick = { showEditor = true }
+                PreAssemblyQuickStatusButton(
+                    icon = Icons.Outlined.Close,
+                    contentDescription = "Нет",
+                    color = DangerColor,
+                    selected = item.status == PreAssemblyStatus.NOT_AVAILABLE,
+                    onClick = { vm.updateStatus(item.id, PreAssemblyStatus.NOT_AVAILABLE) }
                 )
+                PreAssemblyQuickStatusButton(
+                    icon = Icons.Outlined.Archive,
+                    contentDescription = "Нужно переместить",
+                    color = WarningColor,
+                    selected = item.status == PreAssemblyStatus.NEED_TRANSFER,
+                    onClick = { vm.updateStatus(item.id, PreAssemblyStatus.NEED_TRANSFER) }
+                )
+                PreAssemblyQuickCommentButton(
+                    hasComment = hasComment,
+                    onClick = { showCommentEditor = true }
+                )
+                Spacer(Modifier.weight(1f))
+                PreAssemblyQuickCardButton(onClick = { showEditor = true })
             }
         }
     }
 
-    if (showStatusPicker) {
-        PreAssemblyStatusPickerDialog(
-            selected = item.status,
-            onSelected = {
-                vm.updateStatus(item.id, it)
-                showStatusPicker = false
-            },
-            onDismiss = { showStatusPicker = false }
+    if (showCommentEditor) {
+        PreAssemblyCommentDialog(
+            item = item,
+            vm = vm,
+            onDismiss = { showCommentEditor = false }
         )
     }
 
@@ -3193,6 +3256,141 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel)
             vm = vm,
             onDismiss = { showEditor = false }
         )
+    }
+}
+
+@Composable
+private fun PreAssemblyQuickStatusButton(
+    icon: ImageVector,
+    contentDescription: String,
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(if (selected) color else color.copy(alpha = 0.10f))
+            .border(1.dp, color.copy(alpha = if (selected) 0.95f else 0.28f), CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            icon,
+            contentDescription = contentDescription,
+            tint = if (selected) Color.White else color,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@Composable
+private fun PreAssemblyQuickCommentButton(hasComment: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(if (hasComment) AccentColor.copy(alpha = 0.12f) else Color.White)
+            .border(1.dp, if (hasComment) AccentColor.copy(alpha = 0.38f) else CardBorderColor, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Outlined.Description,
+            contentDescription = "Комментарий",
+            tint = if (hasComment) AccentColor else MutedTextColor,
+            modifier = Modifier.size(19.dp)
+        )
+        if (hasComment) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(SuccessColor)
+                    .border(1.dp, Color.White, CircleShape)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyQuickCardButton(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color.White)
+            .border(1.dp, CardBorderColor, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            Icons.Outlined.Inventory2,
+            contentDescription = "Открыть полную карточку",
+            tint = MainTextColor,
+            modifier = Modifier.size(19.dp)
+        )
+    }
+}
+
+@Composable
+private fun PreAssemblyCommentDialog(
+    item: PreAssemblyItem,
+    vm: PreAssemblyViewModel,
+    onDismiss: () -> Unit
+) {
+    var draft by rememberSaveable(item.id, item.comment) { mutableStateOf(item.comment) }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        ModernCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AppIconBubble(Icons.Outlined.Description, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(42.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Комментарий", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(item.name, color = MutedTextColor, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                }
+
+                ModernTextField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    label = "Примечание к товару",
+                    placeholder = "Например: нет на полке / коробка повреждена",
+                    singleLine = false,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppSecondaryButton(
+                        "Очистить",
+                        icon = Icons.Outlined.Delete,
+                        danger = true,
+                        onClick = {
+                            draft = ""
+                            vm.updateComment(item.id, "")
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    AppPrimaryButton(
+                        "Сохранить",
+                        icon = Icons.Outlined.CheckCircle,
+                        onClick = {
+                            vm.updateComment(item.id, draft.trim())
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -3474,17 +3672,17 @@ private fun PreAssemblyCompactQuantityField(
         value = value,
         onValueChange = { raw -> onValueChange(raw.filter { it.isDigit() }.take(5)) },
         modifier = modifier
-            .height(42.dp)
+            .height(40.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
             .border(1.4.dp, AccentColor, RoundedCornerShape(12.dp))
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 10.dp),
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         textStyle = androidx.compose.ui.text.TextStyle(
             color = MainTextColor,
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 14.sp,
+            fontSize = 15.sp,
             textAlign = TextAlign.End
         ),
         decorationBox = { innerTextField ->
@@ -3720,14 +3918,14 @@ private fun PreAssemblyStatusColor(status: PreAssemblyStatus): Color = when (sta
     PreAssemblyStatus.NOT_CHECKED -> MutedTextColor
     PreAssemblyStatus.AVAILABLE -> SuccessColor
     PreAssemblyStatus.NOT_AVAILABLE -> DangerColor
-    PreAssemblyStatus.NEED_TRANSFER -> AccentColor
+    PreAssemblyStatus.NEED_TRANSFER -> WarningColor
 }
 
 private fun PreAssemblyStatusBackground(status: PreAssemblyStatus): Color = when (status) {
     PreAssemblyStatus.NOT_CHECKED -> Color(0xFFF2F4F7)
     PreAssemblyStatus.AVAILABLE -> Color(0xFFE9F8EF)
     PreAssemblyStatus.NOT_AVAILABLE -> Color(0xFFFFE8E8)
-    PreAssemblyStatus.NEED_TRANSFER -> SoftBlueColor
+    PreAssemblyStatus.NEED_TRANSFER -> Color(0xFFFFF4E5)
 }
 
 private fun PreAssemblyStatusHint(status: PreAssemblyStatus): String = when (status) {

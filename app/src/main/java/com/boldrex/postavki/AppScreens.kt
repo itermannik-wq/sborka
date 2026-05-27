@@ -145,6 +145,12 @@ private val NarrowScreenBreakpoint = 340.dp
 
 private enum class AppMode { MENU, SUPPLY, PRE_ASSEMBLY }
 
+private enum class PreAssemblyBulkAction(val title: String, val confirmTitle: String, val successButton: String) {
+    MARK_AVAILABLE("Отметить все видимые как “Есть”", "Отметить как “Есть”?", "Отметить"),
+    RESET_CHECK("Сбросить проверку", "Сбросить проверку?", "Сбросить"),
+    CLEAR_COMMENTS("Очистить комментарии", "Очистить комментарии?", "Очистить")
+}
+
 @Composable
 private fun AppPrimaryButton(
     text: String,
@@ -2655,15 +2661,21 @@ private fun MainMenuScreen(onSupply: () -> Unit, onPreAssembly: () -> Unit) {
 private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewModel, onBack: () -> Unit) {
     var showPreview by remember { mutableStateOf(false) }
     var showControls by rememberSaveable { mutableStateOf(false) }
+    var showBulkActions by rememberSaveable { mutableStateOf(false) }
+    var showFinishDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingBulkAction by remember { mutableStateOf<PreAssemblyBulkAction?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf("ALL") }
+    var sortOrderKey by rememberSaveable { mutableStateOf(PreAssemblySortOrder.ATTENTION.name) }
     var isSummaryExpanded by rememberSaveable { mutableStateOf(true) }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    val sortOrder = PreAssemblySortOrder.values().firstOrNull { it.name == sortOrderKey } ?: PreAssemblySortOrder.ATTENTION
     val checkedCount = state.items.count { it.status != PreAssemblyStatus.NOT_CHECKED }
     val availableCount = state.items.count { it.status == PreAssemblyStatus.AVAILABLE }
     val toTransferCount = state.items.count { it.status == PreAssemblyStatus.NOT_AVAILABLE || it.status == PreAssemblyStatus.NEED_TRANSFER }
     val notCheckedCount = state.items.size - checkedCount
+    val commentsCount = state.items.count { it.comment.isNotBlank() }
     val hasActiveFilters = searchQuery.isNotBlank() || statusFilter != "ALL"
     val filteredItems = state.items.filter { item ->
         val byStatus = statusFilter == "ALL" || item.status.name == statusFilter
@@ -2674,6 +2686,8 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
             (item.sku?.contains(query, ignoreCase = true) == true)
         byStatus && bySearch
     }
+    val sortedItems = sortPreAssemblyItems(filteredItems, sortOrder)
+    val visibleIds = filteredItems.map { it.id }
 
     LaunchedEffect(state.message) {
         if (state.message != null) {
@@ -2717,16 +2731,30 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
                         isExpanded = isSummaryExpanded,
                         onToggleExpanded = { isSummaryExpanded = !isSummaryExpanded }
                     )
+                    if (state.isCompleted) {
+                        PreAssemblyCompletedBanner(
+                            completedAt = state.completedAt,
+                            hasProblems = toTransferCount > 0,
+                            hasUnchecked = notCheckedCount > 0,
+                            onReturnToWork = vm::returnToWork
+                        )
+                    }
+                    PreAssemblyVisibleInfoRow(
+                        visibleCount = filteredItems.size,
+                        totalCount = state.items.size,
+                        sortTitle = sortOrder.title,
+                        isCompleted = state.isCompleted
+                    )
                     if (filteredItems.isEmpty()) {
                         PreAssemblyNoResultsCard(onReset = { searchQuery = ""; statusFilter = "ALL" })
                     } else {
                         LazyColumn(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(bottom = 216.dp)
+                            contentPadding = PaddingValues(bottom = 282.dp)
                         ) {
-                            items(filteredItems, key = { it.id }) { item ->
-                                PreAssemblyItemCard(item = item, vm = vm)
+                            items(sortedItems, key = { it.id }) { item ->
+                                PreAssemblyItemCard(item = item, vm = vm, readOnly = state.isCompleted)
                             }
                         }
                     }
@@ -2740,10 +2768,14 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
 
         PreAssemblyActionPanel(
             hasItems = state.items.isNotEmpty(),
+            hasVisibleItems = filteredItems.isNotEmpty(),
             hasReport = state.reportText.isNotBlank(),
             hasActiveFilters = hasActiveFilters,
+            isCompleted = state.isCompleted,
             onOpenControls = { showControls = true },
+            onOpenBulkActions = { showBulkActions = true },
             onBuildReport = { showPreview = vm.buildReport() },
+            onFinishAssembly = { showFinishDialog = true },
             onShareReport = {
                 if (vm.buildReport()) {
                     showPreview = true
@@ -2761,9 +2793,63 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
             onSearchQueryChange = { searchQuery = it },
             statusFilter = statusFilter,
             onStatusFilterChange = { statusFilter = it },
+            sortOrder = sortOrder,
+            onSortOrderChange = { sortOrderKey = it.name },
             onReload = vm::loadOrders,
             isLoading = state.isLoading,
             onDismiss = { showControls = false }
+        )
+    }
+
+    if (showBulkActions) {
+        PreAssemblyBulkActionsDialog(
+            visibleCount = filteredItems.size,
+            totalCount = state.items.size,
+            isCompleted = state.isCompleted,
+            onAction = { action ->
+                pendingBulkAction = action
+                showBulkActions = false
+            },
+            onDismiss = { showBulkActions = false }
+        )
+    }
+
+    pendingBulkAction?.let { action ->
+        PreAssemblyBulkConfirmDialog(
+            action = action,
+            visibleCount = filteredItems.size,
+            totalCount = state.items.size,
+            onDismiss = { pendingBulkAction = null },
+            onConfirm = {
+                when (action) {
+                    PreAssemblyBulkAction.MARK_AVAILABLE -> vm.markVisibleAsAvailable(visibleIds)
+                    PreAssemblyBulkAction.RESET_CHECK -> vm.resetVisibleCheck(visibleIds)
+                    PreAssemblyBulkAction.CLEAR_COMMENTS -> vm.clearVisibleComments(visibleIds)
+                }
+                pendingBulkAction = null
+            }
+        )
+    }
+
+    if (showFinishDialog) {
+        PreAssemblyFinishDialog(
+            total = state.items.size,
+            checked = checkedCount,
+            available = availableCount,
+            toTransfer = toTransferCount,
+            notChecked = notCheckedCount,
+            comments = commentsCount,
+            isCompleted = state.isCompleted,
+            completedAt = state.completedAt,
+            onDismiss = { showFinishDialog = false },
+            onFinish = {
+                vm.finishPreAssembly()
+                showFinishDialog = false
+            },
+            onReturnToWork = {
+                vm.returnToWork()
+                showFinishDialog = false
+            }
         )
     }
 
@@ -3020,6 +3106,8 @@ private fun PreAssemblyControlPanel(
     onSearchQueryChange: (String) -> Unit,
     statusFilter: String,
     onStatusFilterChange: (String) -> Unit,
+    sortOrder: PreAssemblySortOrder,
+    onSortOrderChange: (PreAssemblySortOrder) -> Unit,
     onReload: () -> Unit,
     isLoading: Boolean,
     modifier: Modifier = Modifier
@@ -3035,12 +3123,16 @@ private fun PreAssemblyControlPanel(
             if (maxWidth < 430.dp) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.fillMaxWidth())
+                    PreAssemblySortDropdown(sortOrder, onSortOrderChange, Modifier.fillMaxWidth())
                     AppSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
                 }
             } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
-                    AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.widthIn(min = 138.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
+                        PreAssemblySortDropdown(sortOrder, onSortOrderChange, Modifier.weight(1f))
+                    }
+                    AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
@@ -3094,8 +3186,49 @@ private fun PreAssemblyFilterDropdown(selectedKey: String, onSelected: (String) 
     }
 }
 
+
 @Composable
-private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel) {
+private fun PreAssemblySortDropdown(selected: PreAssemblySortOrder, onSelected: (PreAssemblySortOrder) -> Unit, modifier: Modifier = Modifier) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(15.dp))
+                .background(InputContainerColor)
+                .border(1.dp, CardBorderColor, RoundedCornerShape(15.dp))
+                .clickable { expanded = true }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = AccentColor, modifier = Modifier.size(18.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Сортировка", color = MutedTextColor, fontSize = 11.sp, maxLines = 1)
+                Text(selected.title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MutedTextColor, modifier = Modifier.rotate(if (expanded) 180f else 0f))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(Color.White)) {
+            PreAssemblySortOrder.values().forEach { order ->
+                DropdownMenuItem(
+                    text = { Text(order.title, color = MainTextColor, fontWeight = if (order == selected) FontWeight.Bold else FontWeight.Normal) },
+                    onClick = {
+                        onSelected(order)
+                        expanded = false
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = if (order == selected) AccentColor else MutedTextColor)
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel, readOnly: Boolean = false) {
     val hasComment = item.comment.isNotBlank()
     val showTransferInput = item.status == PreAssemblyStatus.NOT_AVAILABLE || item.status == PreAssemblyStatus.NEED_TRANSFER
     var showEditor by rememberSaveable(item.id) { mutableStateOf(false) }
@@ -3127,7 +3260,7 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel)
                     Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(14.dp))
-                        .clickable { showEditor = true },
+                        .clickable(enabled = !readOnly) { showEditor = true },
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
@@ -3181,6 +3314,7 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel)
                             PreAssemblyCompactQuantityField(
                                 value = item.transferQuantity,
                                 onValueChange = { vm.updateTransferQuantity(item.id, it) },
+                                enabled = !readOnly,
                                 modifier = Modifier.widthIn(min = 118.dp, max = 136.dp)
                             )
                         }
@@ -3216,6 +3350,7 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel)
                     contentDescription = "Есть",
                     color = SuccessColor,
                     selected = item.status == PreAssemblyStatus.AVAILABLE,
+                    enabled = !readOnly,
                     onClick = { vm.updateStatus(item.id, PreAssemblyStatus.AVAILABLE) }
                 )
                 PreAssemblyQuickStatusButton(
@@ -3223,6 +3358,7 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel)
                     contentDescription = "Нет",
                     color = DangerColor,
                     selected = item.status == PreAssemblyStatus.NOT_AVAILABLE,
+                    enabled = !readOnly,
                     onClick = { vm.updateStatus(item.id, PreAssemblyStatus.NOT_AVAILABLE) }
                 )
                 PreAssemblyQuickStatusButton(
@@ -3230,14 +3366,16 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel)
                     contentDescription = "Нужно переместить",
                     color = WarningColor,
                     selected = item.status == PreAssemblyStatus.NEED_TRANSFER,
+                    enabled = !readOnly,
                     onClick = { vm.updateStatus(item.id, PreAssemblyStatus.NEED_TRANSFER) }
                 )
                 PreAssemblyQuickCommentButton(
                     hasComment = hasComment,
+                    enabled = !readOnly,
                     onClick = { showCommentEditor = true }
                 )
                 Spacer(Modifier.weight(1f))
-                PreAssemblyQuickCardButton(onClick = { showEditor = true })
+                PreAssemblyQuickCardButton(enabled = !readOnly, onClick = { showEditor = true })
             }
         }
     }
@@ -3265,15 +3403,17 @@ private fun PreAssemblyQuickStatusButton(
     contentDescription: String,
     color: Color,
     selected: Boolean,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
             .size(40.dp)
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(CircleShape)
             .background(if (selected) color else color.copy(alpha = 0.10f))
             .border(1.dp, color.copy(alpha = if (selected) 0.95f else 0.28f), CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
@@ -3286,14 +3426,15 @@ private fun PreAssemblyQuickStatusButton(
 }
 
 @Composable
-private fun PreAssemblyQuickCommentButton(hasComment: Boolean, onClick: () -> Unit) {
+private fun PreAssemblyQuickCommentButton(hasComment: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(40.dp)
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(CircleShape)
             .background(if (hasComment) AccentColor.copy(alpha = 0.12f) else Color.White)
             .border(1.dp, if (hasComment) AccentColor.copy(alpha = 0.38f) else CardBorderColor, CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
@@ -3316,14 +3457,15 @@ private fun PreAssemblyQuickCommentButton(hasComment: Boolean, onClick: () -> Un
 }
 
 @Composable
-private fun PreAssemblyQuickCardButton(onClick: () -> Unit) {
+private fun PreAssemblyQuickCardButton(enabled: Boolean = true, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(40.dp)
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(CircleShape)
             .background(Color.White)
             .border(1.dp, CardBorderColor, CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
@@ -3483,12 +3625,227 @@ private fun PreAssemblyNoResultsCard(onReset: () -> Unit) {
 }
 
 
+
+@Composable
+private fun PreAssemblyVisibleInfoRow(visibleCount: Int, totalCount: Int, sortTitle: String, isCompleted: Boolean) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (isCompleted) Color(0xFFE9F8EF) else Color(0xFFF7F9FF))
+            .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = if (isCompleted) SuccessColor else AccentColor, modifier = Modifier.size(18.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text("Видимых позиций: $visibleCount из $totalCount", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text("Сортировка: $sortTitle", color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (isCompleted) {
+            StatusBadge("Завершена", tone = BadgeTone.Green)
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyCompletedBanner(completedAt: String?, hasProblems: Boolean, hasUnchecked: Boolean, onReturnToWork: () -> Unit) {
+    val title = when {
+        hasUnchecked -> "Завершена с непроверенными позициями"
+        hasProblems -> "Завершена с проблемами"
+        else -> "Завершена без проблем"
+    }
+    ModernCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppIconBubble(Icons.Outlined.CheckCircle, tint = SuccessColor, background = Color(0xFFE9F8EF), modifier = Modifier.size(42.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Дата завершения: ${completedAt ?: "—"}", color = MutedTextColor, fontSize = 13.sp)
+                }
+            }
+            Text("Позиции заблокированы от случайных изменений. Для исправлений верните сборку в работу.", color = MutedTextColor, fontSize = 13.sp, lineHeight = 17.sp)
+            AppSecondaryButton("Вернуть в работу", icon = Icons.Outlined.Archive, onClick = onReturnToWork, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyBulkActionsDialog(
+    visibleCount: Int,
+    totalCount: Int,
+    isCompleted: Boolean,
+    onAction: (PreAssemblyBulkAction) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        ModernCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Массовые действия", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Действие применится только к видимым позициям: $visibleCount из $totalCount.", color = MutedTextColor, fontSize = 13.sp)
+                    }
+                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                }
+                if (isCompleted) {
+                    PreAssemblyMessageCard("Сборка завершена. Верните её в работу, чтобы менять позиции.")
+                }
+                PreAssemblyBulkAction.values().forEach { action ->
+                    PreAssemblyBulkActionRow(
+                        action = action,
+                        enabled = visibleCount > 0 && !isCompleted,
+                        onClick = { onAction(action) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyBulkActionRow(action: PreAssemblyBulkAction, enabled: Boolean, onClick: () -> Unit) {
+    val icon = when (action) {
+        PreAssemblyBulkAction.MARK_AVAILABLE -> Icons.Outlined.CheckCircle
+        PreAssemblyBulkAction.RESET_CHECK -> Icons.Outlined.Archive
+        PreAssemblyBulkAction.CLEAR_COMMENTS -> Icons.Outlined.Delete
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.48f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White)
+            .border(1.dp, CardBorderColor, RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(icon, contentDescription = null, tint = AccentColor, modifier = Modifier.size(21.dp))
+        Text(action.title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MutedTextColor, modifier = Modifier.rotate(-90f))
+    }
+}
+
+@Composable
+private fun PreAssemblyBulkConfirmDialog(
+    action: PreAssemblyBulkAction,
+    visibleCount: Int,
+    totalCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        ModernCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(action.confirmTitle, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                Text(
+                    when (action) {
+                        PreAssemblyBulkAction.MARK_AVAILABLE -> "Отметить $visibleCount позиций как “Есть”? Будут изменены только товары, которые сейчас отображаются после поиска и фильтра."
+                        PreAssemblyBulkAction.RESET_CHECK -> "Сбросить проверку у $visibleCount позиций? Комментарии сохранятся, а статус станет “Не проверено”."
+                        PreAssemblyBulkAction.CLEAR_COMMENTS -> "Очистить комментарии у $visibleCount позиций? Статусы и количество к перемещению не изменятся."
+                    },
+                    color = MutedTextColor,
+                    fontSize = 14.sp,
+                    lineHeight = 19.sp
+                )
+                Text("Видимых позиций: $visibleCount из $totalCount", color = AccentColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AppSecondaryButton("Отмена", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
+                    AppPrimaryButton(action.successButton, icon = Icons.Outlined.CheckCircle, onClick = onConfirm, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyFinishDialog(
+    total: Int,
+    checked: Int,
+    available: Int,
+    toTransfer: Int,
+    notChecked: Int,
+    comments: Int,
+    isCompleted: Boolean,
+    completedAt: String?,
+    onDismiss: () -> Unit,
+    onFinish: () -> Unit,
+    onReturnToWork: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        ModernCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AppIconBubble(Icons.Outlined.CheckCircle, tint = if (isCompleted) SuccessColor else AccentColor, background = if (isCompleted) Color(0xFFE9F8EF) else SoftBlueColor, modifier = Modifier.size(42.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(if (isCompleted) "Предварительная сборка завершена" else "Завершить предварительную сборку?", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text(if (isCompleted) "Завершено: ${completedAt ?: "—"}" else "Проверьте итог перед фиксацией результата.", color = MutedTextColor, fontSize = 13.sp)
+                    }
+                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                }
+
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFFF7F9FF))
+                        .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PreAssemblyInfoLine("Всего позиций", total.toString())
+                    PreAssemblyInfoLine("Проверено", checked.toString())
+                    PreAssemblyInfoLine("Не проверено", notChecked.toString())
+                    PreAssemblyInfoLine("Есть", available.toString())
+                    PreAssemblyInfoLine("Нет / переместить", toTransfer.toString())
+                    PreAssemblyInfoLine("Комментариев", comments.toString())
+                }
+
+                if (notChecked > 0 && !isCompleted) {
+                    PreAssemblyMessageCard("Осталось $notChecked непроверенных позиций. Можно вернуться к списку или завершить всё равно.")
+                } else if (toTransfer > 0 && !isCompleted) {
+                    PreAssemblyMessageCard("Есть $toTransfer проблемных позиций. После завершения сборка будет отмечена как завершённая с проблемами.")
+                }
+
+                if (isCompleted) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppSecondaryButton("Закрыть", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
+                        AppPrimaryButton("Вернуть в работу", icon = Icons.Outlined.Archive, onClick = onReturnToWork, modifier = Modifier.weight(1f))
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppSecondaryButton("Вернуться", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
+                        AppPrimaryButton(if (notChecked > 0) "Завершить всё равно" else "Завершить", icon = Icons.Outlined.CheckCircle, onClick = onFinish, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PreAssemblyControlsDialog(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     statusFilter: String,
     onStatusFilterChange: (String) -> Unit,
+    sortOrder: PreAssemblySortOrder,
+    onSortOrderChange: (PreAssemblySortOrder) -> Unit,
     onReload: () -> Unit,
     isLoading: Boolean,
     onDismiss: () -> Unit
@@ -3502,8 +3859,8 @@ private fun PreAssemblyControlsDialog(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Поиск и фильтр", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                        Text("Панель вынесена в отдельное окно, чтобы не занимать место на экране.", color = MutedTextColor, fontSize = 13.sp)
+                        Text("Поиск, фильтр и сортировка", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Сортировка “Что проверять дальше” поднимает наверх непроверенные и проблемные товары.", color = MutedTextColor, fontSize = 13.sp)
                     }
                     AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
@@ -3512,6 +3869,8 @@ private fun PreAssemblyControlsDialog(
                     onSearchQueryChange = onSearchQueryChange,
                     statusFilter = statusFilter,
                     onStatusFilterChange = onStatusFilterChange,
+                    sortOrder = sortOrder,
+                    onSortOrderChange = onSortOrderChange,
                     onReload = onReload,
                     isLoading = isLoading,
                     modifier = Modifier.fillMaxWidth()
@@ -3666,11 +4025,13 @@ private fun PreAssemblyMetaChip(
 private fun PreAssemblyCompactQuantityField(
     value: String,
     onValueChange: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     BasicTextField(
         value = value,
         onValueChange = { raw -> onValueChange(raw.filter { it.isDigit() }.take(5)) },
+        enabled = enabled,
         modifier = modifier
             .height(40.dp)
             .clip(RoundedCornerShape(12.dp))
@@ -3766,10 +4127,14 @@ private fun PreAssemblyCompactCardButton(
 @Composable
 private fun PreAssemblyActionPanel(
     hasItems: Boolean,
+    hasVisibleItems: Boolean,
     hasReport: Boolean,
     hasActiveFilters: Boolean,
+    isCompleted: Boolean,
     onOpenControls: () -> Unit,
+    onOpenBulkActions: () -> Unit,
     onBuildReport: () -> Unit,
+    onFinishAssembly: () -> Unit,
     onShareReport: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -3784,6 +4149,11 @@ private fun PreAssemblyActionPanel(
             onClick = onOpenControls
         )
         PreAssemblyMinimalActionButton(
+            icon = Icons.Outlined.MoreVert,
+            enabled = hasItems && hasVisibleItems && !isCompleted,
+            onClick = onOpenBulkActions
+        )
+        PreAssemblyMinimalActionButton(
             icon = Icons.Outlined.Description,
             primary = true,
             enabled = hasItems,
@@ -3791,8 +4161,9 @@ private fun PreAssemblyActionPanel(
         )
         PreAssemblyMinimalActionButton(
             icon = Icons.Outlined.CheckCircle,
+            primary = isCompleted,
             enabled = hasItems || hasReport,
-            onClick = onShareReport
+            onClick = onFinishAssembly
         )
     }
 }
@@ -3912,6 +4283,51 @@ private fun PreAssemblyReportDialog(reportText: String, onDismiss: () -> Unit, o
             }
         }
     }
+}
+
+
+private fun sortPreAssemblyItems(items: List<PreAssemblyItem>, sortOrder: PreAssemblySortOrder): List<PreAssemblyItem> {
+    return when (sortOrder) {
+        PreAssemblySortOrder.ATTENTION -> items.sortedWith(
+            compareBy<PreAssemblyItem> { PreAssemblyAttentionPriority(it.status) }
+                .thenBy { it.name.lowercase() }
+                .thenBy { it.offerId.lowercase() }
+        )
+        PreAssemblySortOrder.NOT_CHECKED_FIRST -> items.sortedWith(
+            compareBy<PreAssemblyItem> { if (it.status == PreAssemblyStatus.NOT_CHECKED) 0 else 1 }
+                .thenBy { PreAssemblyAttentionPriority(it.status) }
+                .thenBy { it.name.lowercase() }
+        )
+        PreAssemblySortOrder.NOT_AVAILABLE_FIRST -> items.sortedWith(
+            compareBy<PreAssemblyItem> { if (it.status == PreAssemblyStatus.NOT_AVAILABLE) 0 else 1 }
+                .thenBy { PreAssemblyAttentionPriority(it.status) }
+                .thenBy { it.name.lowercase() }
+        )
+        PreAssemblySortOrder.NEED_TRANSFER_FIRST -> items.sortedWith(
+            compareBy<PreAssemblyItem> { if (it.status == PreAssemblyStatus.NEED_TRANSFER) 0 else 1 }
+                .thenBy { PreAssemblyAttentionPriority(it.status) }
+                .thenBy { it.name.lowercase() }
+        )
+        PreAssemblySortOrder.ARTICLE_ASC -> items.sortedWith(
+            compareBy<PreAssemblyItem> { it.offerId.lowercase() }
+                .thenBy { it.name.lowercase() }
+        )
+        PreAssemblySortOrder.NAME_ASC -> items.sortedWith(
+            compareBy<PreAssemblyItem> { it.name.lowercase() }
+                .thenBy { it.offerId.lowercase() }
+        )
+        PreAssemblySortOrder.QUANTITY_DESC -> items.sortedWith(
+            compareByDescending<PreAssemblyItem> { it.requiredQuantity }
+                .thenBy { it.name.lowercase() }
+        )
+    }
+}
+
+private fun PreAssemblyAttentionPriority(status: PreAssemblyStatus): Int = when (status) {
+    PreAssemblyStatus.NOT_CHECKED -> 0
+    PreAssemblyStatus.NEED_TRANSFER -> 1
+    PreAssemblyStatus.NOT_AVAILABLE -> 2
+    PreAssemblyStatus.AVAILABLE -> 3
 }
 
 private fun PreAssemblyStatusColor(status: PreAssemblyStatus): Color = when (status) {

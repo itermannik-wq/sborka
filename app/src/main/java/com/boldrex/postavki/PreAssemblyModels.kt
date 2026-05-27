@@ -7,6 +7,16 @@ enum class PreAssemblyStatus(val title: String) {
     NEED_TRANSFER("Нужно переместить")
 }
 
+enum class PreAssemblySortOrder(val title: String) {
+    ATTENTION("Что проверять дальше"),
+    NOT_CHECKED_FIRST("Сначала непроверенные"),
+    NOT_AVAILABLE_FIRST("Сначала нет в наличии"),
+    NEED_TRANSFER_FIRST("Сначала нужно переместить"),
+    ARTICLE_ASC("По артикулу"),
+    NAME_ASC("По названию"),
+    QUANTITY_DESC("По количеству")
+}
+
 data class OzonOrderItem(
     val orderId: String,
     val offerId: String,

@@ -1,0 +1,117 @@
+Subject: [PATCH] Make pre-assembly search panel collapsible
+---
+Index: app/src/main/java/com/boldrex/postavki/AppScreens.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/app/src/main/java/com/boldrex/postavki/AppScreens.kt b/app/src/main/java/com/boldrex/postavki/AppScreens.kt
+--- a/app/src/main/java/com/boldrex/postavki/AppScreens.kt	(revision 7261d184a24629a5d407acaf19222d7e02b78ce2)
++++ b/app/src/main/java/com/boldrex/postavki/AppScreens.kt	(revision 7691907c2d3bac89e82841d4ece5ed414cd0b1a7)
+@@ -2626,6 +2626,7 @@
+     var showPreview by remember { mutableStateOf(false) }
+     var searchQuery by rememberSaveable { mutableStateOf("") }
+     var statusFilter by rememberSaveable { mutableStateOf("ALL") }
++    var controlsExpanded by rememberSaveable { mutableStateOf(true) }
+     val clipboard = LocalClipboardManager.current
+     val context = LocalContext.current
+     val checkedCount = state.items.count { it.status != PreAssemblyStatus.NOT_CHECKED }
+@@ -2687,7 +2688,9 @@
+                     statusFilter = statusFilter,
+                     onStatusFilterChange = { statusFilter = it },
+                     onReload = vm::loadOrders,
+-                    isLoading = state.isLoading
++                    isLoading = state.isLoading,
++                    expanded = controlsExpanded,
++                    onExpandedChange = { controlsExpanded = it }
+                 )
+                 if (filteredItems.isEmpty()) {
+                     PreAssemblyNoResultsCard(onReset = { searchQuery = ""; statusFilter = "ALL" })
+@@ -2870,26 +2873,43 @@
+     statusFilter: String,
+     onStatusFilterChange: (String) -> Unit,
+     onReload: () -> Unit,
+-    isLoading: Boolean
++    isLoading: Boolean,
++    expanded: Boolean,
++    onExpandedChange: (Boolean) -> Unit
+ ) {
+     ModernCard(Modifier.fillMaxWidth()) {
+         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+-            FloatingSearchInput(
+-                value = searchQuery,
+-                onValueChange = onSearchQueryChange,
+-                placeholder = "Поиск: артикул, SKU, заказ, название",
+-                modifier = Modifier.fillMaxWidth()
+-            )
+-            BoxWithConstraints(Modifier.fillMaxWidth()) {
+-                if (maxWidth < 430.dp) {
+-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+-                        PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.fillMaxWidth())
+-                        AppSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
+-                    }
+-                } else {
+-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+-                        PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
+-                        AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.widthIn(min = 138.dp))
++            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
++                Text("Поиск и фильтры", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
++                IconButton(onClick = { onExpandedChange(!expanded) }, modifier = Modifier.size(30.dp)) {
++                    Icon(
++                        imageVector = Icons.Outlined.ExpandMore,
++                        contentDescription = if (expanded) "Свернуть поиск и фильтры" else "Развернуть поиск и фильтры",
++                        tint = MutedTextColor,
++                        modifier = Modifier.rotate(if (expanded) 180f else 0f)
++                    )
++                }
++            }
++            AnimatedVisibility(visible = expanded) {
++                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
++                    FloatingSearchInput(
++                        value = searchQuery,
++                        onValueChange = onSearchQueryChange,
++                        placeholder = "Поиск: артикул, SKU, заказ, название",
++                        modifier = Modifier.fillMaxWidth()
++                    )
++                    BoxWithConstraints(Modifier.fillMaxWidth()) {
++                        if (maxWidth < 430.dp) {
++                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                                PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.fillMaxWidth())
++                                AppSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
++                            }
++                        } else {
++                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
++                                PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
++                                AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.widthIn(min = 138.dp))
++                            }
++                        }
+                     }
+                 }
+             }
+Index: app/src/main/java/com/boldrex/postavki/OzonApiConfig.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/app/src/main/java/com/boldrex/postavki/OzonApiConfig.kt b/app/src/main/java/com/boldrex/postavki/OzonApiConfig.kt
+new file mode 100644
+--- /dev/null	(revision 7691907c2d3bac89e82841d4ece5ed414cd0b1a7)
++++ b/app/src/main/java/com/boldrex/postavki/OzonApiConfig.kt	(revision 7691907c2d3bac89e82841d4ece5ed414cd0b1a7)
+@@ -0,0 +1,17 @@
++package com.boldrex.postavki
++
++/**
++ * Конфигурация для Ozon API.
++ *
++ * Заполните значения своими данными из кабинета Ozon Seller API.
++ */
++object OzonApiConfig {
++    // Базовый URL Ozon Seller API
++    const val BASE_URL: String = "https://api-seller.ozon.ru/"
++
++    // Client-Id из Ozon
++    const val CLIENT_ID: String = ""
++
++    // API Key из Ozon
++    const val API_KEY: String = ""
++}

@@ -1,0 +1,288 @@
+﻿2026-05-28 16:45:17 PreAssembly print bridge started on port 8788. Printer: NoSuchPrinterForBridgeTest
+2026-05-28 16:45:17 Leave this window open while printing from the Android app.
+2026-05-28 16:45:19 connection from 127.0.0.1:56357
+2026-05-28 16:45:19 request: POST /print HTTP/1.1, body bytes/chars: 77
+2026-05-28 16:45:19 accepted 'Bridge Test' for 'NoSuchPrinterForBridgeTest'
+2026-05-28 16:47:40 PreAssembly print bridge started on port 8791. Printer: NoSuchPrinterForBridgeTest
+2026-05-28 16:47:40 Leave this window open while printing from the Android app.
+2026-05-28 16:47:44 connection from 127.0.0.1:49619
+2026-05-28 16:47:45 request: POST /print HTTP/1.1, body bytes/chars: 77
+2026-05-28 16:47:45 accepted 'Bridge Test' for 'NoSuchPrinterForBridgeTest'
+2026-05-28 16:47:46 print error: Printer or share 'NoSuchPrinterForBridgeTest' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-28 16:48:56 PreAssembly print bridge started on port 8792. Printer: NoSuchPrinterForBridgeTest
+2026-05-28 16:48:57 Leave this window open while printing from the Android app.
+2026-05-28 16:48:58 connection from 127.0.0.1:61571
+2026-05-28 16:48:58 request: POST /print HTTP/1.1, body bytes/chars: 77
+2026-05-28 16:48:58 accepted 'Bridge Test' for 'NoSuchPrinterForBridgeTest'
+2026-05-28 16:48:59 print error: Printer or share 'NoSuchPrinterForBridgeTest' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-28 16:53:06 PreAssembly print bridge started on port 8795. Printer: NoSuchPrinterForBridgeTest
+2026-05-28 16:53:06 Leave this window open while printing from the Android app.
+2026-05-28 16:53:08 connection from 127.0.0.1:61219
+2026-05-28 16:53:08 request: POST /print HTTP/1.1, body bytes/chars: 87
+2026-05-28 16:53:08 accepted 'Bridge Test' for 'NoSuchPrinterForBridgeTest'
+2026-05-29 08:54:08 PreAssembly print bridge started on port 8796. Printer: NoSuchPrinterForBridgeTest
+2026-05-29 08:54:08 Leave this window open while printing from the Android app.
+2026-05-29 08:54:09 connection from 127.0.0.1:60909
+2026-05-29 08:54:10 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 08:54:10 health check from 127.0.0.1:60909. Printer: NOT FOUND: NoSuchPrinterForBridgeTest
+2026-05-29 08:54:10 connection from 127.0.0.1:60916
+2026-05-29 08:54:11 request: POST /print HTTP/1.1, body bytes/chars: 87
+2026-05-29 08:54:11 print error: Printer or share 'NoSuchPrinterForBridgeTest' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 08:54:47 PreAssembly print bridge started on port 8797. Printer: NoSuchPrinterForBridgeTest
+2026-05-29 08:54:47 Leave this window open while printing from the Android app.
+2026-05-29 08:54:49 connection from 127.0.0.1:61303
+2026-05-29 08:54:49 request: POST /print HTTP/1.1, body bytes/chars: 75
+2026-05-29 08:54:49 print error: Недопустимый примитив JSON: NoSuchPrinterForBridgeTest.
+2026-05-29 09:08:45 PreAssembly print bridge started on port 8787. Printer: ECOSYS
+2026-05-29 09:08:45 Leave this window open while printing from the Android app.
+2026-05-29 09:08:47 connection from 127.0.0.1:52750
+2026-05-29 09:08:47 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 09:08:48 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:08:48 health check from 127.0.0.1:52750. Printer: ECOSYS P2040dw
+2026-05-29 09:11:00 PreAssembly print bridge started on port 8787. Printer: bx-proizv
+2026-05-29 09:11:00 Leave this window open while printing from the Android app.
+2026-05-29 09:11:00 connection from 127.0.0.1:59917
+2026-05-29 09:11:00 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 09:11:01 printer 'bx-proizv' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:11:01 health check from 127.0.0.1:59917. Printer: ECOSYS P2040dw
+2026-05-29 09:11:15 connection from 127.0.0.1:59995
+2026-05-29 09:11:15 request: POST /print HTTP/1.1, body bytes/chars: 87
+2026-05-29 09:11:16 printer 'bx-proizv' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:11:17 printed 'PreAssembly bridge test' on 'ECOSYS P2040dw'
+2026-05-29 09:32:06 PreAssembly print bridge started on port 8787. Printer: ECOSYS
+2026-05-29 09:32:06 Leave this window open while printing from the Android app.
+2026-05-29 09:32:08 connection from 127.0.0.1:58928
+2026-05-29 09:32:08 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 09:32:09 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:32:09 health check from 127.0.0.1:58928. Printer: ECOSYS P2040dw
+2026-05-29 09:32:26 connection from 127.0.0.1:59028
+2026-05-29 09:32:26 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 09:32:27 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:32:27 health check from 127.0.0.1:59028. Printer: ECOSYS P2040dw
+2026-05-29 09:33:22 connection from 127.0.0.1:59359
+2026-05-29 09:33:22 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 09:33:22 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:33:22 health check from 127.0.0.1:59359. Printer: ECOSYS P2040dw
+2026-05-29 09:33:22 connection from 127.0.0.1:59360
+2026-05-29 09:33:23 request: POST /print HTTP/1.1, body bytes/chars: 404
+2026-05-29 09:33:23 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:33:24 printed 'Тест принтера bx-proizv' on 'ECOSYS P2040dw'
+2026-05-29 09:33:35 connection from 127.0.0.1:59403
+2026-05-29 09:33:35 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 09:33:36 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:33:36 health check from 127.0.0.1:59403. Printer: ECOSYS P2040dw
+2026-05-29 09:33:36 connection from 127.0.0.1:59405
+2026-05-29 09:33:36 request: POST /print HTTP/1.1, body bytes/chars: 404
+2026-05-29 09:33:36 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:33:37 printed 'Тест принтера bx-proizv' on 'ECOSYS P2040dw'
+2026-05-29 09:48:27 connection from 127.0.0.1:55998
+2026-05-29 09:48:27 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 09:48:27 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:48:27 health check from 127.0.0.1:55998. Printer: ECOSYS P2040dw
+2026-05-29 09:57:04 connection from 127.0.0.1:60541
+2026-05-29 09:57:04 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 09:57:04 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:57:04 health check from 127.0.0.1:60541. Printer: ECOSYS P2040dw
+2026-05-29 09:57:48 connection from 192.168.0.137:52868
+2026-05-29 09:57:48 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 09:57:49 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:57:49 health check from 192.168.0.137:52868. Printer: ECOSYS P2040dw
+2026-05-29 09:59:23 connection from 192.168.0.137:61707
+2026-05-29 09:59:23 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 09:59:24 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:59:24 health check from 192.168.0.137:61707. Printer: ECOSYS P2040dw
+2026-05-29 09:59:24 connection from 192.168.0.137:58205
+2026-05-29 09:59:24 request: POST /print HTTP/1.1, body bytes/chars: 404
+2026-05-29 09:59:25 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 09:59:25 printed 'Тест принтера bx-proizv' on 'ECOSYS P2040dw'
+2026-05-29 10:01:25 connection from 192.168.0.1:46742
+2026-05-29 10:01:25 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 10:01:26 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 10:01:26 health check from 192.168.0.1:46742. Printer: ECOSYS P2040dw
+2026-05-29 10:01:26 connection from 192.168.0.1:46748
+2026-05-29 10:01:26 request: POST /print HTTP/1.1, body bytes/chars: 404
+2026-05-29 10:01:26 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 10:01:27 printed 'Тест принтера bx-proizv' on 'ECOSYS P2040dw'
+2026-05-29 10:02:22 connection from 192.168.0.1:41938
+2026-05-29 10:02:22 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 10:02:22 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 10:02:22 health check from 192.168.0.1:41938. Printer: ECOSYS P2040dw
+2026-05-29 10:02:22 connection from 192.168.0.1:41942
+2026-05-29 10:02:22 request: POST /print HTTP/1.1, body bytes/chars: 404
+2026-05-29 10:02:23 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 10:02:23 printed 'Тест принтера bx-proizv' on 'ECOSYS P2040dw'
+2026-05-29 10:03:47 connection from 192.168.0.1:47102
+2026-05-29 10:03:47 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 10:03:48 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 10:03:48 health check from 192.168.0.1:47102. Printer: ECOSYS P2040dw
+2026-05-29 10:03:48 connection from 192.168.0.1:47118
+2026-05-29 10:03:48 request: POST /print HTTP/1.1, body bytes/chars: 404
+2026-05-29 10:03:48 printer 'ECOSYS' was not found, using default printer 'ECOSYS P2040dw'
+2026-05-29 10:03:48 printed 'Тест принтера bx-proizv' on 'ECOSYS P2040dw'
+2026-05-29 10:18:20 PreAssembly print bridge started on port 8787. Printer: HP
+2026-05-29 10:18:20 Leave this window open while printing from the Android app.
+2026-05-29 10:18:22 connection from 127.0.0.1:61377
+2026-05-29 10:18:22 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 10:18:23 health check from 127.0.0.1:61377. Printer: NOT FOUND: HP. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 10:18:39 connection from 127.0.0.1:61484
+2026-05-29 10:18:39 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 10:18:39 health check from 127.0.0.1:61484. Printer: NOT FOUND: HP. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 10:19:32 PreAssembly print bridge started on port 8787. Printer: HP LaserJet MFP M129-M134
+2026-05-29 10:19:32 Leave this window open while printing from the Android app.
+2026-05-29 10:19:34 connection from 127.0.0.1:63389
+2026-05-29 10:19:34 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 10:19:35 health check from 127.0.0.1:63389. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 10:19:49 connection from 127.0.0.1:55888
+2026-05-29 10:19:49 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 10:19:49 health check from 127.0.0.1:55888. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 10:20:02 connection from 127.0.0.1:55967
+2026-05-29 10:20:02 request: POST /print HTTP/1.1, body bytes/chars: 111
+2026-05-29 10:20:03 print request: title='Bridge printer selection test', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 10:20:03 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:09:03 connection from 192.168.0.137:50621
+2026-05-29 11:09:04 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:09:04 health check from 192.168.0.137:50621. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:09:04 connection from 192.168.0.137:50624
+2026-05-29 11:09:05 request: POST /print HTTP/1.1, body bytes/chars: 401
+2026-05-29 11:09:05 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:09:05 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:09:05 connection from 127.0.0.1:50628
+2026-05-29 11:09:06 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:09:06 health check from 127.0.0.1:50628. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:09:06 connection from 127.0.0.1:50632
+2026-05-29 11:09:07 request: POST /print HTTP/1.1, body bytes/chars: 401
+2026-05-29 11:09:07 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:09:07 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:15:39 connection from 192.168.0.1:41278
+2026-05-29 11:15:39 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:15:39 health check from 192.168.0.1:41278. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:15:39 connection from 192.168.0.1:41286
+2026-05-29 11:15:39 request: POST /print HTTP/1.1, body bytes/chars: 401
+2026-05-29 11:15:39 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:15:39 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:24:29 connection from 192.168.0.137:65449
+2026-05-29 11:24:29 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:24:29 health check from 192.168.0.137:65449. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:24:30 connection from 192.168.0.137:65450
+2026-05-29 11:24:30 request: POST /print HTTP/1.1, body bytes/chars: 401
+2026-05-29 11:24:30 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:24:30 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:24:31 connection from 127.0.0.1:65451
+2026-05-29 11:24:31 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:24:31 health check from 127.0.0.1:65451. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:24:32 connection from 127.0.0.1:65452
+2026-05-29 11:24:32 request: POST /print HTTP/1.1, body bytes/chars: 401
+2026-05-29 11:24:32 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:24:32 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:24:41 connection from 192.168.0.137:62561
+2026-05-29 11:24:41 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:24:41 health check from 192.168.0.137:62561. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:24:42 connection from 192.168.0.137:62562
+2026-05-29 11:24:42 request: POST /print HTTP/1.1, body bytes/chars: 401
+2026-05-29 11:24:42 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:24:42 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:24:43 connection from 127.0.0.1:62563
+2026-05-29 11:24:43 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:24:43 health check from 127.0.0.1:62563. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:24:44 connection from 127.0.0.1:62565
+2026-05-29 11:24:44 request: POST /print HTTP/1.1, body bytes/chars: 401
+2026-05-29 11:24:44 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:24:44 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:56:28 connection from 192.168.0.1:49690
+2026-05-29 11:56:28 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:56:28 health check from 192.168.0.1:49690. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:56:28 connection from 192.168.0.1:49692
+2026-05-29 11:56:28 request: POST /print HTTP/1.1, body bytes/chars: 1280
+2026-05-29 11:56:28 print request: title='Лист на сборку Ozon', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:56:28 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:56:40 connection from 192.168.0.1:40954
+2026-05-29 11:56:40 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:56:40 health check from 192.168.0.1:40954. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:56:40 connection from 192.168.0.1:40968
+2026-05-29 11:56:40 request: POST /print HTTP/1.1, body bytes/chars: 1280
+2026-05-29 11:56:40 print request: title='Лист на сборку Ozon', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:56:40 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:56:57 connection from 192.168.0.1:46476
+2026-05-29 11:56:57 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:56:57 health check from 192.168.0.1:46476. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:56:58 connection from 192.168.0.1:46478
+2026-05-29 11:56:58 request: POST /print HTTP/1.1, body bytes/chars: 402
+2026-05-29 11:56:58 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:56:58 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 11:57:17 connection from 192.168.0.1:48836
+2026-05-29 11:57:17 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 11:57:17 health check from 192.168.0.1:48836. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 11:57:18 connection from 192.168.0.1:48852
+2026-05-29 11:57:18 request: POST /print HTTP/1.1, body bytes/chars: 402
+2026-05-29 11:57:18 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 11:57:18 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 12:34:43 connection from 192.168.0.1:46818
+2026-05-29 12:34:43 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 12:34:43 health check from 192.168.0.1:46818. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 12:34:43 connection from 192.168.0.1:46832
+2026-05-29 12:34:43 request: POST /print HTTP/1.1, body bytes/chars: 402
+2026-05-29 12:34:43 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 12:34:43 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 13:08:01 connection from 192.168.0.1:41874
+2026-05-29 13:08:01 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 13:08:01 health check from 192.168.0.1:41874. Printer: NOT FOUND: HP LaserJet MFP M129-M134. AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]; ECOSYS P2040dw; HP75B473 (HP LaserJet Pro M428-M429); Kyocera FS-1120MFP GX; OneNote (Desktop)
+2026-05-29 13:08:01 connection from 192.168.0.1:41882
+2026-05-29 13:08:01 request: POST /print HTTP/1.1, body bytes/chars: 402
+2026-05-29 13:08:01 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 13:08:01 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 14:27:48 connection from 192.168.0.137:61540
+2026-05-29 14:27:48 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 14:27:48 health check from 192.168.0.137:61540. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 14:27:49 connection from 192.168.0.137:61542
+2026-05-29 14:27:49 request: POST /print HTTP/1.1, body bytes/chars: 401
+2026-05-29 14:27:49 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 14:27:49 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 14:27:50 connection from 127.0.0.1:61551
+2026-05-29 14:27:50 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 14:27:50 health check from 127.0.0.1:61551. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 14:27:51 connection from 127.0.0.1:61554
+2026-05-29 14:27:51 request: POST /print HTTP/1.1, body bytes/chars: 401
+2026-05-29 14:27:51 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 14:27:51 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 14:28:23 connection from 192.168.0.1:39526
+2026-05-29 14:28:23 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 14:28:23 health check from 192.168.0.1:39526. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 14:28:23 connection from 192.168.0.1:39542
+2026-05-29 14:28:23 request: POST /print HTTP/1.1, body bytes/chars: 402
+2026-05-29 14:28:23 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 14:28:23 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 14:29:05 connection from 192.168.0.137:50410
+2026-05-29 14:29:05 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 14:29:05 health check from 192.168.0.137:50410. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 14:29:05 connection from 192.168.0.137:50411
+2026-05-29 14:29:06 request: POST /print HTTP/1.1, body bytes/chars: 402
+2026-05-29 14:29:06 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 14:29:06 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 14:29:06 connection from 127.0.0.1:50412
+2026-05-29 14:29:07 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 14:29:07 health check from 127.0.0.1:50412. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 14:29:07 connection from 127.0.0.1:50414
+2026-05-29 14:29:08 request: POST /print HTTP/1.1, body bytes/chars: 402
+2026-05-29 14:29:08 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 14:29:08 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 14:32:15 connection from 192.168.0.1:39668
+2026-05-29 14:32:15 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 14:32:15 health check from 192.168.0.1:39668. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 14:32:15 connection from 192.168.0.1:39672
+2026-05-29 14:32:15 request: POST /print HTTP/1.1, body bytes/chars: 402
+2026-05-29 14:32:15 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 14:32:15 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 14:33:42 connection from 192.168.0.1:39682
+2026-05-29 14:33:42 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 14:33:42 health check from 192.168.0.1:39682. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 14:33:43 connection from 192.168.0.1:39694
+2026-05-29 14:33:43 request: POST /print HTTP/1.1, body bytes/chars: 402
+2026-05-29 14:33:43 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 14:33:43 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.
+2026-05-29 14:34:06 connection from 192.168.0.1:42802
+2026-05-29 14:34:06 request: GET /health HTTP/1.1, body bytes/chars: 0
+2026-05-29 14:34:06 health check from 192.168.0.1:42802. Printer: NOT FOUND: HP LaserJet MFP M129-M134. OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]
+2026-05-29 14:34:06 connection from 192.168.0.1:42816
+2026-05-29 14:34:06 request: POST /print HTTP/1.1, body bytes/chars: 402
+2026-05-29 14:34:06 print request: title='Тест принтера HP LaserJet MFP M129-M134', requested printer='HP LaserJet MFP M129-M134'
+2026-05-29 14:34:06 print error: Printer or share 'HP LaserJet MFP M129-M134' was not found in Windows. Available: OneNote (Desktop); Kyocera FS-1120MFP GX; HP75B473 (HP LaserJet Pro M428-M429); ECOSYS P2040dw; AnyDesk v4 Printer Driver [share: AnyDesk v4 Printer Driver]. Set the exact Windows printer name in the Android app or start bridge with -PrinterName.

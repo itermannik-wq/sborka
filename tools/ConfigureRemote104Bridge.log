@@ -1,0 +1,22 @@
+﻿2026-05-29 14:23:34 === Configure remote PreAssembly bridge started ===
+2026-05-29 14:23:36 Initial SMB RequireSecuritySignature=True
+2026-05-29 14:23:38 Added host route to 192.168.10.104 via Ethernet interface 13
+2026-05-29 14:23:38 Temporarily disabling SMB client required signing
+2026-05-29 14:23:41 LanmanWorkstation restarted
+2026-05-29 14:23:41 net.exe use \\192.168.10.104\C$ /delete /y
+2026-05-29 14:23:41   Не удалось найти сетевое подключение.
+2026-05-29 14:23:41   System.Management.Automation.RemoteException
+2026-05-29 14:23:41   Для вызова дополнительной справки наберите NET HELPMSG 2250.
+2026-05-29 14:23:41   System.Management.Automation.RemoteException
+2026-05-29 14:23:41   exit=2
+2026-05-29 14:23:41 net.exe use \\192.168.10.104\C$ <redacted> /user:192.168.10.104\Office /persistent:no
+2026-05-29 14:24:02   Системная ошибка 5.
+2026-05-29 14:24:02   System.Management.Automation.RemoteException
+2026-05-29 14:24:02   Отказано в доступе.
+2026-05-29 14:24:02   System.Management.Automation.RemoteException
+2026-05-29 14:24:02   exit=2
+2026-05-29 14:24:02 ERROR: cannot connect to \\192.168.10.104\C$ as 192.168.10.104\Office
+2026-05-29 14:24:02 Restoring SMB client required signing to True
+2026-05-29 14:24:04 LanmanWorkstation restored
+2026-05-29 14:24:05 Credential file removed
+

@@ -1,9 +1,21 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.devtools.ksp")
 }
+
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.isFile) {
+        localPropertiesFile.inputStream().use { stream -> load(stream) }
+    }
+}
+
+fun String.asBuildConfigString(): String =
+    "\"" + replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "com.boldrex.postavki"
@@ -15,10 +27,26 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField(
+            "String",
+            "OZON_CLIENT_ID",
+            (localProperties.getProperty("ozon.clientId") ?: System.getenv("OZON_CLIENT_ID") ?: "")
+                .trim()
+                .asBuildConfigString()
+        )
+        buildConfigField(
+            "String",
+            "OZON_API_KEY",
+            (localProperties.getProperty("ozon.apiKey") ?: System.getenv("OZON_API_KEY") ?: "")
+                .trim()
+                .asBuildConfigString()
+        )
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
@@ -31,6 +59,18 @@ kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
+}
+
+tasks.register("wrapper") {
+    group = "Build Setup"
+    description = "Delegates to the root Gradle wrapper task when Android Studio runs :app:wrapper."
+    dependsOn(rootProject.tasks.named("wrapper"))
+}
+
+tasks.register("prepareKotlinBuildScriptModel") {
+    group = "Build Setup"
+    description = "Delegates to the root Kotlin build script model task when Android Studio runs :app:prepareKotlinBuildScriptModel."
+    dependsOn(rootProject.tasks.named("prepareKotlinBuildScriptModel"))
 }
 
 dependencies {
@@ -56,6 +96,7 @@ dependencies {
     implementation("androidx.camera:camera-view:1.6.0")
     implementation("com.google.guava:guava:33.4.8-android")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")

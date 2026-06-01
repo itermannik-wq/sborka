@@ -78,7 +78,8 @@ object ExcelService {
             }
         }
 
-        repo.logImport(preview.fileName, preview.fileType, preview.rowsTotal, added + updated, skipped)
+        val totalErrors = preview.errorRows + preview.duplicateBarcodeRows + runtimeErrors
+        repo.logImport(preview.fileName, preview.fileType, preview.rowsTotal, added + updated, totalErrors)
         return ProductImportResult(
             fileName = preview.fileName,
             rowsTotal = preview.rowsTotal,

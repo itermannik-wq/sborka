@@ -22,7 +22,8 @@ data class OzonOrderItem(
     val offerId: String,
     val sku: String?,
     val name: String,
-    val quantity: Int
+    val quantity: Int,
+    val imageUrl: String? = null
 )
 
 data class PreAssemblyItem(
@@ -34,7 +35,8 @@ data class PreAssemblyItem(
     val requiredQuantity: Int,
     val status: PreAssemblyStatus = PreAssemblyStatus.NOT_CHECKED,
     val transferQuantity: String = "",
-    val comment: String = ""
+    val comment: String = "",
+    val imageUrl: String? = null
 )
 
 data class PreAssemblyReportRow(
@@ -42,4 +44,45 @@ data class PreAssemblyReportRow(
     val name: String,
     val transferQuantity: Int,
     val comment: String?
+)
+
+data class PreAssemblyArchiveEntry(
+    val id: Long = 0,
+    val title: String,
+    val completedAt: Long,
+    val completedAtText: String,
+    val resultTitle: String,
+    val total: Int,
+    val checked: Int,
+    val available: Int,
+    val toTransfer: Int,
+    val notChecked: Int,
+    val comments: Int,
+    val items: List<PreAssemblyItem> = emptyList()
+)
+
+data class PreAssemblyArchiveSummaryData(
+    val id: Long,
+    val title: String,
+    val completedAt: Long,
+    val completedAtText: String,
+    val resultTitle: String,
+    val total: Int,
+    val checked: Int,
+    val available: Int,
+    val toTransfer: Int,
+    val notChecked: Int,
+    val comments: Int
+)
+
+data class PreAssemblyArchiveItemData(
+    val id: Long,
+    val orderId: String,
+    val offerId: String,
+    val sku: String?,
+    val name: String,
+    val requiredQuantity: Int,
+    val status: String,
+    val transferQuantity: String,
+    val comment: String
 )

@@ -13,6 +13,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(tableName = "marketplaces", indices = [Index(value = ["name"], unique = true)])
 data class MarketplaceEntity(
@@ -109,6 +111,36 @@ data class AppSettingEntity(
     val value: String
 )
 
+@Entity(tableName = "pre_assembly_archives", indices = [Index("completedAt")])
+data class PreAssemblyArchiveEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val title: String,
+    val completedAt: Long,
+    val completedAtText: String,
+    val resultTitle: String,
+    val total: Int,
+    val checked: Int,
+    val available: Int,
+    val toTransfer: Int,
+    val notChecked: Int,
+    val comments: Int
+)
+
+@Entity(tableName = "pre_assembly_archive_items", indices = [Index("archiveId"), Index("offerId")])
+data class PreAssemblyArchiveItemEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val archiveId: Long,
+    val sortIndex: Int,
+    val orderId: String,
+    val offerId: String,
+    val sku: String?,
+    val name: String,
+    val requiredQuantity: Int,
+    val status: String,
+    val transferQuantity: String,
+    val comment: String
+)
+
 @Dao
 interface AppDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -141,15 +173,25 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertReportLog(entity: ReportLogEntity): Long
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertPreAssemblyArchive(entity: PreAssemblyArchiveEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertPreAssemblyArchiveItems(entities: List<PreAssemblyArchiveItemEntity>)
+
     @Update suspend fun updateShipment(entity: ShipmentEntity)
     @Update suspend fun updateBox(entity: BoxEntity)
     @Update suspend fun updateBoxItem(entity: BoxItemEntity)
     @Update suspend fun updateProduct(entity: ProductEntity)
+    @Update suspend fun updatePreAssemblyArchive(entity: PreAssemblyArchiveEntity)
     @Delete suspend fun deleteBox(entity: BoxEntity)
     @Delete suspend fun deleteBoxItem(entity: BoxItemEntity)
 
     @Query("DELETE FROM box_items WHERE boxId = :boxId")
     suspend fun deleteItemsForBox(boxId: Long)
+
+    @Query("DELETE FROM pre_assembly_archive_items WHERE archiveId = :archiveId")
+    suspend fun deletePreAssemblyArchiveItems(archiveId: Long)
 
     @Query("SELECT id FROM marketplaces WHERE name = :name LIMIT 1")
     suspend fun marketplaceIdByName(name: String): Long?
@@ -276,15 +318,32 @@ interface AppDao {
 
     @Query("SELECT COUNT(*) FROM marketplaces")
     suspend fun marketplaceCount(): Int
+
+    @Query("""
+        SELECT id, title, completedAt, completedAtText, resultTitle, total, checked,
+               available, toTransfer, notChecked, comments
+        FROM pre_assembly_archives
+        ORDER BY completedAt DESC, id DESC
+    """)
+    suspend fun listPreAssemblyArchiveSummaries(): List<PreAssemblyArchiveSummaryData>
+
+    @Query("""
+        SELECT id, orderId, offerId, sku, name, requiredQuantity, status, transferQuantity, comment
+        FROM pre_assembly_archive_items
+        WHERE archiveId = :archiveId
+        ORDER BY sortIndex ASC, id ASC
+    """)
+    suspend fun listPreAssemblyArchiveItems(archiveId: Long): List<PreAssemblyArchiveItemData>
 }
 
 @Database(
     entities = [
         MarketplaceEntity::class, CityEntity::class, ProductEntity::class, ShipmentEntity::class,
         ShipmentCityEntity::class, BoxEntity::class, BoxItemEntity::class, ImportLogEntity::class,
-        ReportLogEntity::class, AppSettingEntity::class
+        ReportLogEntity::class, AppSettingEntity::class, PreAssemblyArchiveEntity::class,
+        PreAssemblyArchiveItemEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class LocalDatabase : RoomDatabase() {
@@ -295,9 +354,52 @@ abstract class LocalDatabase : RoomDatabase() {
 
         fun get(context: Context): LocalDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(context.applicationContext, LocalDatabase::class.java, "postavki.db")
+                .addMigrations(MIGRATION_1_2)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { INSTANCE = it }
+        }
+
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `pre_assembly_archives` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `title` TEXT NOT NULL,
+                        `completedAt` INTEGER NOT NULL,
+                        `completedAtText` TEXT NOT NULL,
+                        `resultTitle` TEXT NOT NULL,
+                        `total` INTEGER NOT NULL,
+                        `checked` INTEGER NOT NULL,
+                        `available` INTEGER NOT NULL,
+                        `toTransfer` INTEGER NOT NULL,
+                        `notChecked` INTEGER NOT NULL,
+                        `comments` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_pre_assembly_archives_completedAt` ON `pre_assembly_archives` (`completedAt`)")
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `pre_assembly_archive_items` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `archiveId` INTEGER NOT NULL,
+                        `sortIndex` INTEGER NOT NULL,
+                        `orderId` TEXT NOT NULL,
+                        `offerId` TEXT NOT NULL,
+                        `sku` TEXT,
+                        `name` TEXT NOT NULL,
+                        `requiredQuantity` INTEGER NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `transferQuantity` TEXT NOT NULL,
+                        `comment` TEXT NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_pre_assembly_archive_items_archiveId` ON `pre_assembly_archive_items` (`archiveId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_pre_assembly_archive_items_offerId` ON `pre_assembly_archive_items` (`offerId`)")
+            }
         }
     }
 }

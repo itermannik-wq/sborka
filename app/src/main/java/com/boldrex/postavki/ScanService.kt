@@ -43,6 +43,7 @@ import java.nio.charset.Charset
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
+@androidx.annotation.OptIn(ExperimentalGetImage::class)
 @OptIn(ExperimentalGetImage::class)
 @Composable
 fun BarcodeScannerScreen(onCodeScanned: (String) -> Unit, onClose: () -> Unit) {
@@ -167,7 +168,7 @@ private fun rememberScanSuccessSoundPlayer(): () -> Unit {
 
     return remember(context, toneGenerator) {
         {
-            val resId = context.resources.getIdentifier("barcode", "raw", context.packageName)
+            val resId = R.raw.barcode
             if (resId == 0) {
                 toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP, 120)
             } else runCatching {

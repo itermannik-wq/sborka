@@ -1,5 +1,10 @@
 package com.boldrex.postavki
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.graphics.BitmapFactory
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -33,9 +38,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -55,16 +62,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Search
@@ -90,6 +100,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -101,15 +112,23 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.URL
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -144,6 +163,12 @@ private val CompactScreenBreakpoint = 380.dp
 private val NarrowScreenBreakpoint = 340.dp
 
 private enum class AppMode { MENU, SUPPLY, PRE_ASSEMBLY }
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
 
 private enum class PreAssemblyBulkAction(val title: String, val confirmTitle: String, val successButton: String) {
     MARK_AVAILABLE("Отметить все видимые как “Есть”", "Отметить как “Есть”?", "Отметить"),
@@ -695,13 +720,24 @@ private fun SearchField(
 @Composable
 fun AppRoot(vm: AppViewModel) {
     var mode by rememberSaveable { mutableStateOf(AppMode.MENU) }
-    val preAssemblyVm = remember { PreAssemblyViewModel() }
+    val context = LocalContext.current
+    val preAssemblyVm = remember(context.applicationContext) {
+        PreAssemblyViewModel(
+            archiveRepository = PreAssemblyArchiveRepository(
+                LocalDatabase.get(context.applicationContext).dao()
+            )
+        )
+    }
     val state by vm.state.collectAsState()
     val preAssemblyState by preAssemblyVm.state.collectAsState()
     val showStartupLoader = mode == AppMode.SUPPLY && state.isBusy && state.shipments.isEmpty() && state.screen == AppScreen.SHIPMENTS
     Box(Modifier.fillMaxSize().background(AppBackgroundGradient)) {
         if (mode == AppMode.MENU) {
-            MainMenuScreen(onSupply = { mode = AppMode.SUPPLY }, onPreAssembly = { mode = AppMode.PRE_ASSEMBLY })
+            MainMenuScreen(
+                onBack = { context.findActivity()?.finish() },
+                onSupply = { mode = AppMode.SUPPLY },
+                onPreAssembly = { mode = AppMode.PRE_ASSEMBLY }
+            )
             return@Box
         }
         if (mode == AppMode.PRE_ASSEMBLY) {
@@ -2609,51 +2645,365 @@ private fun SettingsInfoRow(title: String, value: String) {
 }
 
 
+private data class ModeBadgeData(
+    val text: String,
+    val icon: ImageVector,
+    val tone: Color
+)
+
 @Composable
-private fun MainMenuScreen(onSupply: () -> Unit, onPreAssembly: () -> Unit) {
-    Column(
+private fun MainMenuScreen(onBack: () -> Unit, onSupply: () -> Unit, onPreAssembly: () -> Unit) {
+    BoxWithConstraints(
         Modifier
             .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFFFBFDFF), Color(0xFFF2F7FF), Color(0xFFEAF2FF))
+                )
+            )
     ) {
-        Text("Выбор режима", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MainTextColor)
-        Text(
-            "Выберите, что нужно сделать сейчас. Основная поставка и предварительная сборка открываются отдельно.",
-            color = MutedTextColor,
-            fontSize = 14.sp,
-            lineHeight = 19.sp
+        val compact = maxWidth < CompactScreenBreakpoint
+        val horizontalPadding = if (compact) 16.dp else 24.dp
+
+        ModeMenuBackground(Modifier.matchParentSize())
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = horizontalPadding,
+                end = horizontalPadding,
+                top = if (compact) 14.dp else 22.dp,
+                bottom = 28.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 18.dp)
+        ) {
+            item {
+                ModeMenuHero(onBack = onBack, compact = compact)
+            }
+            item {
+                ModeChoiceCard(
+                    title = "Поставка на склады",
+                    subtitle = "Основной режим работы с поставками, городами и коробами",
+                    icon = Icons.Outlined.Inventory2,
+                    accent = AccentColor,
+                    onClick = onSupply
+                )
+            }
+            item {
+                ModeChoiceCard(
+                    title = "Предварительная сборка",
+                    subtitle = "Ручная проверка заказов Ozon: есть товар, нет товара, сколько переместить",
+                    icon = Icons.Outlined.CheckCircle,
+                    accent = SuccessColor,
+                    badges = listOf(
+                        ModeBadgeData("Отдельный экран", Icons.Outlined.Description, AccentColor),
+                        ModeBadgeData("Список бухгалтеру", Icons.Outlined.CheckCircle, SuccessColor)
+                    ),
+                    onClick = onPreAssembly
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModeMenuBackground(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        val stroke = 2.dp.toPx()
+        drawCircle(
+            color = Color.White.copy(alpha = 0.78f),
+            radius = size.width * 0.42f,
+            center = Offset(size.width * 0.98f, -size.height * 0.03f),
+            style = Stroke(width = stroke)
         )
-        ModernCard(Modifier.fillMaxWidth().clickable(onClick = onSupply)) {
+        drawCircle(
+            color = Color.White.copy(alpha = 0.58f),
+            radius = size.width * 0.30f,
+            center = Offset(size.width * 0.96f, 0f),
+            style = Stroke(width = stroke)
+        )
+        drawCircle(
+            color = Color(0xFFE3ECFF).copy(alpha = 0.54f),
+            radius = size.width * 0.44f,
+            center = Offset(size.width * 0.88f, size.height * 1.03f),
+            style = Stroke(width = stroke)
+        )
+    }
+}
+
+@Composable
+private fun ModeMenuHero(onBack: () -> Unit, compact: Boolean) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(if (compact) 306.dp else 346.dp)
+    ) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .size(if (compact) 54.dp else 62.dp)
+                .shadow(
+                    elevation = 14.dp,
+                    shape = CircleShape,
+                    ambientColor = Color(0x160B1226),
+                    spotColor = Color(0x220B1226)
+                )
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.96f))
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                contentDescription = "Назад",
+                tint = MainTextColor,
+                modifier = Modifier.size(if (compact) 27.dp else 31.dp)
+            )
+        }
+
+        ModeHeroIllustration(
+            Modifier
+                .align(Alignment.TopEnd)
+                .size(if (compact) 178.dp else 232.dp)
+                .alpha(if (compact) 0.88f else 1f)
+        )
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .fillMaxWidth(if (compact) 0.94f else 0.74f),
+            verticalArrangement = Arrangement.spacedBy(13.dp)
+        ) {
+            Text(
+                "Выбор режима",
+                fontSize = if (compact) 35.sp else 42.sp,
+                lineHeight = if (compact) 39.sp else 46.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = MainTextColor
+            )
+            Text(
+                "Выберите, что нужно сделать сейчас.\nОсновная поставка и предварительная сборка открываются отдельно.",
+                color = MutedTextColor,
+                fontSize = if (compact) 17.sp else 19.sp,
+                lineHeight = if (compact) 25.sp else 28.sp
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModeHeroIllustration(modifier: Modifier = Modifier) {
+    Canvas(modifier) {
+        fun cube(center: Offset, side: Float, top: Color, left: Color, right: Color, edge: Color) {
+            val topPoint = Offset(center.x, center.y - side * 0.58f)
+            val rightPoint = Offset(center.x + side * 0.72f, center.y - side * 0.17f)
+            val bottomPoint = Offset(center.x, center.y + side * 0.24f)
+            val leftPoint = Offset(center.x - side * 0.72f, center.y - side * 0.17f)
+            val rightBottom = Offset(rightPoint.x, rightPoint.y + side * 0.78f)
+            val bottomDrop = Offset(center.x, bottomPoint.y + side * 0.78f)
+            val leftBottom = Offset(leftPoint.x, leftPoint.y + side * 0.78f)
+
+            val topPath = Path().apply {
+                moveTo(topPoint.x, topPoint.y)
+                lineTo(rightPoint.x, rightPoint.y)
+                lineTo(bottomPoint.x, bottomPoint.y)
+                lineTo(leftPoint.x, leftPoint.y)
+                close()
+            }
+            val rightPath = Path().apply {
+                moveTo(rightPoint.x, rightPoint.y)
+                lineTo(rightBottom.x, rightBottom.y)
+                lineTo(bottomDrop.x, bottomDrop.y)
+                lineTo(bottomPoint.x, bottomPoint.y)
+                close()
+            }
+            val leftPath = Path().apply {
+                moveTo(leftPoint.x, leftPoint.y)
+                lineTo(bottomPoint.x, bottomPoint.y)
+                lineTo(bottomDrop.x, bottomDrop.y)
+                lineTo(leftBottom.x, leftBottom.y)
+                close()
+            }
+
+            drawPath(leftPath, left)
+            drawPath(rightPath, right)
+            drawPath(topPath, top)
+            drawPath(topPath, edge, style = Stroke(width = 1.dp.toPx()))
+            drawPath(leftPath, edge.copy(alpha = 0.58f), style = Stroke(width = 1.dp.toPx()))
+            drawPath(rightPath, edge.copy(alpha = 0.58f), style = Stroke(width = 1.dp.toPx()))
+        }
+
+        drawOval(
+            color = Color(0xFFD9E8FF).copy(alpha = 0.55f),
+            topLeft = Offset(size.width * 0.10f, size.height * 0.72f),
+            size = Size(size.width * 0.76f, size.height * 0.18f)
+        )
+        cube(
+            center = Offset(size.width * 0.53f, size.height * 0.48f),
+            side = size.width * 0.29f,
+            top = Color.White.copy(alpha = 0.95f),
+            left = Color(0xFFE8F0FF).copy(alpha = 0.86f),
+            right = Color(0xFFF8FBFF).copy(alpha = 0.95f),
+            edge = Color(0xFFC8D9F8).copy(alpha = 0.50f)
+        )
+        cube(
+            center = Offset(size.width * 0.56f, size.height * 0.18f),
+            side = size.width * 0.21f,
+            top = Color(0xFFA8C9FF),
+            left = Color(0xFF4EA7FF),
+            right = Color(0xFF2F6BFF),
+            edge = Color(0xFF7FAEFF)
+        )
+        cube(
+            center = Offset(size.width * 0.88f, size.height * 0.62f),
+            side = size.width * 0.15f,
+            top = Color(0xFFBEE1FF).copy(alpha = 0.95f),
+            left = Color(0xFF77C7FF).copy(alpha = 0.88f),
+            right = Color(0xFF57A1FF).copy(alpha = 0.88f),
+            edge = Color(0xFFB6D5FF).copy(alpha = 0.76f)
+        )
+    }
+}
+
+@Composable
+private fun ModeChoiceCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    accent: Color,
+    badges: List<ModeBadgeData> = emptyList(),
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(28.dp)
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 20.dp,
+                shape = shape,
+                ambientColor = Color(0x120B1226),
+                spotColor = Color(0x180B1226)
+            )
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.96f))
+            .border(1.dp, Color(0xFFE4EBF7), shape)
+            .clickable(onClick = onClick)
+    ) {
+        val compact = maxWidth < CompactScreenBreakpoint
+        Canvas(Modifier.matchParentSize()) {
+            drawRect(
+                color = accent,
+                topLeft = Offset.Zero,
+                size = Size(7.dp.toPx(), size.height)
+            )
+        }
+        Column(
+            Modifier.padding(
+                start = if (compact) 18.dp else 24.dp,
+                top = if (compact) 18.dp else 24.dp,
+                end = if (compact) 16.dp else 22.dp,
+                bottom = if (badges.isEmpty()) {
+                    if (compact) 18.dp else 24.dp
+                } else {
+                    if (compact) 20.dp else 24.dp
+                }
+            )
+        ) {
             Row(
-                Modifier.padding(18.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 20.dp)
             ) {
-                AppIconBubble(Icons.Outlined.Inventory2)
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text("Поставка на склады", fontWeight = FontWeight.Bold, fontSize = 21.sp, color = MainTextColor)
-                    Text("Основной режим работы с поставками, городами и коробами", color = MutedTextColor, lineHeight = 19.sp)
+                ModeChoiceIcon(icon = icon, accent = accent, size = if (compact) 70.dp else 86.dp)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    Text(
+                        title,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = if (compact) 24.sp else 28.sp,
+                        lineHeight = if (compact) 28.sp else 32.sp,
+                        color = MainTextColor,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        subtitle,
+                        color = MutedTextColor,
+                        fontSize = if (compact) 16.sp else 18.sp,
+                        lineHeight = if (compact) 23.sp else 26.sp,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MutedTextColor, modifier = Modifier.rotate(-90f))
+                Box(
+                    modifier = Modifier
+                        .size(if (compact) 48.dp else 58.dp)
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = 0.10f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Outlined.ExpandMore,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier
+                            .size(if (compact) 28.dp else 32.dp)
+                            .rotate(-90f)
+                    )
+                }
             }
-        }
-        ModernCard(Modifier.fillMaxWidth().clickable(onClick = onPreAssembly)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    AppIconBubble(Icons.Outlined.CheckCircle, tint = SuccessColor, background = Color(0xFFE9F8EF))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        Text("Предварительная сборка", fontWeight = FontWeight.Bold, fontSize = 21.sp, color = MainTextColor)
-                        Text("Ручная проверка заказов Ozon: есть товар, нет товара, сколько переместить", color = MutedTextColor, lineHeight = 19.sp)
+            if (badges.isNotEmpty()) {
+                Spacer(Modifier.height(if (compact) 18.dp else 22.dp))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    badges.forEach { badge ->
+                        ModeBadge(badge = badge, modifier = Modifier.weight(1f))
                     }
-                    Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = AccentColor, modifier = Modifier.rotate(-90f))
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusBadge("Отдельный экран", tone = BadgeTone.Blue)
-                    StatusBadge("Список бухгалтеру", tone = BadgeTone.Green)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ModeChoiceIcon(icon: ImageVector, accent: Color, size: androidx.compose.ui.unit.Dp) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(
+                Brush.radialGradient(
+                    listOf(accent.copy(alpha = 0.15f), accent.copy(alpha = 0.05f), Color.Transparent)
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(size * 0.44f))
+    }
+}
+
+@Composable
+private fun ModeBadge(badge: ModeBadgeData, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(badge.tone.copy(alpha = 0.10f))
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Icon(badge.icon, contentDescription = null, tint = badge.tone, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(7.dp))
+        Text(
+            badge.text,
+            color = badge.tone,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            lineHeight = 16.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -2663,6 +3013,8 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
     var showControls by rememberSaveable { mutableStateOf(false) }
     var showBulkActions by rememberSaveable { mutableStateOf(false) }
     var showFinishDialog by rememberSaveable { mutableStateOf(false) }
+    var showArchiveDialog by rememberSaveable { mutableStateOf(false) }
+    var selectedArchiveId by rememberSaveable { mutableStateOf<Long?>(null) }
     var pendingBulkAction by remember { mutableStateOf<PreAssemblyBulkAction?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var statusFilter by rememberSaveable { mutableStateOf("ALL") }
@@ -2670,6 +3022,8 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
     var isSummaryExpanded by rememberSaveable { mutableStateOf(true) }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
+    var printBridgeHost by rememberSaveable { mutableStateOf(PreAssemblyPrinter.savedBridgeHost(context)) }
+    var printPrinterName by rememberSaveable { mutableStateOf(PreAssemblyPrinter.savedPrinterName(context)) }
     val sortOrder = PreAssemblySortOrder.values().firstOrNull { it.name == sortOrderKey } ?: PreAssemblySortOrder.ATTENTION
     val checkedCount = state.items.count { it.status != PreAssemblyStatus.NOT_CHECKED }
     val availableCount = state.items.count { it.status == PreAssemblyStatus.AVAILABLE }
@@ -2706,6 +3060,41 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
                 "Отправить через"
             )
         )
+    }
+
+    fun printReport(text: String) {
+        PreAssemblyPrinter.printTransferList(context, text)
+            .onFailure { error ->
+                Toast.makeText(
+                    context,
+                    "Не удалось открыть печать: ${error.message ?: "ошибка печати"}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+    }
+
+    fun printTestPage() {
+        PreAssemblyPrinter.printTestPage(context)
+            .onFailure { error ->
+                Toast.makeText(
+                    context,
+                    "Не удалось открыть тестовую печать: ${error.message ?: "ошибка печати"}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+    }
+
+    fun sharePrintLogs() {
+        PreAssemblyPrintLog.append(context, "Пользователь запросил выгрузку логов печати")
+        PreAssemblyPrintLog.share(context)
+            .onFailure { error ->
+                PreAssemblyPrintLog.append(context, "Не удалось выгрузить логи печати", error)
+                Toast.makeText(
+                    context,
+                    "Не удалось выгрузить логи печати: ${error.message ?: "ошибка экспорта"}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -2771,6 +3160,7 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
             hasVisibleItems = filteredItems.isNotEmpty(),
             hasReport = state.reportText.isNotBlank(),
             hasActiveFilters = hasActiveFilters,
+            hasArchive = state.archive.isNotEmpty(),
             isCompleted = state.isCompleted,
             onOpenControls = { showControls = true },
             onOpenBulkActions = { showBulkActions = true },
@@ -2806,6 +3196,29 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
             visibleCount = filteredItems.size,
             totalCount = state.items.size,
             isCompleted = state.isCompleted,
+            archive = state.archive,
+            printBridgeHost = printBridgeHost,
+            onPrintBridgeHostChange = { host ->
+                printBridgeHost = host
+                PreAssemblyPrinter.saveBridgeHost(context, host)
+            },
+            printPrinterName = printPrinterName,
+            onPrintPrinterNameChange = { printerName ->
+                printPrinterName = printerName
+                PreAssemblyPrinter.savePrinterName(context, printerName)
+            },
+            onOpenArchive = {
+                showBulkActions = false
+                showArchiveDialog = true
+            },
+            onPrintTest = {
+                showBulkActions = false
+                printTestPage()
+            },
+            onSharePrintLogs = {
+                showBulkActions = false
+                sharePrintLogs()
+            },
             onAction = { action ->
                 pendingBulkAction = action
                 showBulkActions = false
@@ -2858,7 +3271,31 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
             reportText = state.reportText,
             onDismiss = { showPreview = false },
             onCopy = { clipboard.setText(AnnotatedString(state.reportText)) },
-            onShare = { shareReport(state.reportText) }
+            onPrint = { printReport(state.reportText) },
+            onShare = {
+                printReport(state.reportText)
+                shareReport(state.reportText)
+            }
+        )
+    }
+
+    if (showArchiveDialog) {
+        PreAssemblyArchiveDialog(
+            archive = state.archive,
+            onOpenEntry = {
+                selectedArchiveId = it
+                showArchiveDialog = false
+            },
+            onDismiss = { showArchiveDialog = false }
+        )
+    }
+
+    state.archive.firstOrNull { it.id == selectedArchiveId }?.let { entry ->
+        PreAssemblyArchiveDetailsDialog(
+            entry = entry,
+            onSave = vm::updateArchiveEntry,
+            onShare = { shareReport(PreAssemblyArchiveMessageText(it)) },
+            onDismiss = { selectedArchiveId = null }
         )
     }
 }
@@ -3240,47 +3677,52 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel,
             .border(1.dp, PreAssemblyStatusColor(item.status).copy(alpha = 0.22f), RoundedCornerShape(24.dp))
     ) {
         Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Box(
                     modifier = Modifier
-                        .size(width = 5.dp, height = 66.dp)
+                        .width(4.dp)
+                        .fillMaxHeight()
+                        .heightIn(min = 72.dp)
                         .clip(RoundedCornerShape(999.dp))
                         .background(PreAssemblyStatusColor(item.status).copy(alpha = 0.82f))
                 )
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(RoundedCornerShape(13.dp))
-                        .background(PreAssemblyStatusBackground(item.status)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = PreAssemblyStatusColor(item.status), modifier = Modifier.size(20.dp))
-                }
+                PreAssemblyProductPhoto(
+                    imageUrl = item.imageUrl,
+                    status = item.status,
+                    modifier = Modifier.clickable(enabled = !readOnly) { showEditor = true }
+                )
                 Column(
                     Modifier
                         .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable(enabled = !readOnly) { showEditor = true },
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                        .clickable(enabled = !readOnly) { showEditor = true }
+                        .padding(start = 2.dp, top = 1.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Text(
                         item.name,
                         color = MainTextColor,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        lineHeight = 18.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        fontSize = 13.sp,
+                        lineHeight = 16.sp
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        PreAssemblyMetaChip("Арт. ${item.offerId}")
-                        PreAssemblyMetaChip("${item.requiredQuantity} шт.", background = Color(0xFFF4F6FB), contentColor = MainTextColor)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PreAssemblyMetaChip("Арт. ${item.offerId}", modifier = Modifier.widthIn(max = 132.dp))
+                        PreAssemblyQuantityChip(item.requiredQuantity)
                         if (!item.sku.isNullOrBlank()) {
                             PreAssemblyMetaChip("SKU", background = Color(0xFFF4F6FB), contentColor = MutedTextColor)
                         }
                     }
                 }
-                PreAssemblyStatusPill(item.status)
             }
 
             AnimatedVisibility(
@@ -3395,6 +3837,82 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel,
             onDismiss = { showEditor = false }
         )
     }
+}
+
+private val preAssemblyProductImageCache = java.util.concurrent.ConcurrentHashMap<String, ImageBitmap>()
+
+@Composable
+private fun PreAssemblyProductPhoto(
+    imageUrl: String?,
+    status: PreAssemblyStatus,
+    modifier: Modifier = Modifier
+) {
+    val imageBitmap by produceState<ImageBitmap?>(initialValue = null, imageUrl) {
+        value = imageUrl?.let { url ->
+            preAssemblyProductImageCache[url] ?: loadPreAssemblyProductImage(url)?.also { bitmap ->
+                preAssemblyProductImageCache[url] = bitmap
+            }
+        }
+    }
+    val shape = RoundedCornerShape(15.dp)
+
+    Box(
+        modifier
+            .size(width = 72.dp, height = 96.dp)
+            .clip(shape)
+            .background(PreAssemblyStatusBackground(status))
+            .border(1.dp, PreAssemblyStatusColor(status).copy(alpha = 0.22f), shape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (imageBitmap != null) {
+            Image(
+                bitmap = imageBitmap!!,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Icon(
+                Icons.Outlined.Inventory2,
+                contentDescription = null,
+                tint = PreAssemblyStatusColor(status),
+                modifier = Modifier.size(23.dp)
+            )
+        }
+    }
+}
+
+private suspend fun loadPreAssemblyProductImage(url: String): ImageBitmap? = withContext(Dispatchers.IO) {
+    runCatching {
+        val imageUrl = url.trim().let { if (it.startsWith("//")) "https:$it" else it }
+        val connection = URL(imageUrl).openConnection().apply {
+            connectTimeout = 5_000
+            readTimeout = 8_000
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/124 Mobile Safari/537.36")
+            setRequestProperty("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+        }
+        val bytes = connection.getInputStream().use { it.readBytes() }
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = preAssemblyImageSampleSize(bounds, 300, 400)
+        }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)?.asImageBitmap()
+    }.getOrNull()
+}
+
+private fun preAssemblyImageSampleSize(options: BitmapFactory.Options, reqWidth: Int, reqHeight: Int): Int {
+    var sampleSize = 1
+    val height = options.outHeight
+    val width = options.outWidth
+    if (height > reqHeight || width > reqWidth) {
+        var halfHeight = height / 2
+        var halfWidth = width / 2
+        while (halfHeight / sampleSize >= reqHeight && halfWidth / sampleSize >= reqWidth) {
+            sampleSize *= 2
+        }
+    }
+    return sampleSize
 }
 
 @Composable
@@ -3672,10 +4190,561 @@ private fun PreAssemblyCompletedBanner(completedAt: String?, hasProblems: Boolea
 }
 
 @Composable
+private fun PreAssemblyArchiveDialog(
+    archive: List<PreAssemblyArchiveEntry>,
+    onOpenEntry: (Long) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        ModernCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AppIconBubble(Icons.Outlined.Archive, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(42.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Архив сборок", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Завершённые предварительные сборки сохраняются здесь автоматически.", color = MutedTextColor, fontSize = 13.sp)
+                    }
+                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                }
+                if (archive.isEmpty()) {
+                    PreAssemblyMessageCard("Архив пуст. Завершите предварительную сборку, чтобы она появилась здесь.")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 520.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(archive.sortedByDescending { it.completedAt }, key = { it.id }) { entry ->
+                            PreAssemblyArchiveRow(entry = entry, onOpen = { onOpenEntry(entry.id) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveRow(entry: PreAssemblyArchiveEntry, onOpen: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White)
+            .border(1.dp, CardBorderColor, RoundedCornerShape(16.dp))
+            .clickable(onClick = onOpen)
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(entry.title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(entry.resultTitle, color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            StatusBadge("${entry.total} поз.", tone = if (entry.toTransfer == 0 && entry.notChecked == 0) BadgeTone.Green else BadgeTone.Blue)
+        }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            if (maxWidth < 300.dp) {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        PreAssemblyArchiveStat("Пров.", entry.checked.toString(), AccentColor, Modifier.weight(1f))
+                        PreAssemblyArchiveStat("Есть", entry.available.toString(), SuccessColor, Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        PreAssemblyArchiveStat("Перем.", entry.toTransfer.toString(), DangerColor, Modifier.weight(1f))
+                        PreAssemblyArchiveStat("Не пров.", entry.notChecked.toString(), MutedTextColor, Modifier.weight(1f))
+                    }
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    PreAssemblyArchiveStat("Пров.", entry.checked.toString(), AccentColor, Modifier.weight(1f))
+                    PreAssemblyArchiveStat("Есть", entry.available.toString(), SuccessColor, Modifier.weight(1f))
+                    PreAssemblyArchiveStat("Перем.", entry.toTransfer.toString(), DangerColor, Modifier.weight(1f))
+                    PreAssemblyArchiveStat("Не пров.", entry.notChecked.toString(), MutedTextColor, Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveStat(title: String, value: String, valueColor: Color, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .height(42.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xFFF7F9FF))
+            .padding(horizontal = 6.dp, vertical = 5.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(value, color = valueColor, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, lineHeight = 15.sp, maxLines = 1)
+        Text(title, color = MutedTextColor, fontSize = 9.sp, lineHeight = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveDetailsDialog(
+    entry: PreAssemblyArchiveEntry,
+    onSave: (PreAssemblyArchiveEntry) -> Unit,
+    onShare: (PreAssemblyArchiveEntry) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var isEditing by rememberSaveable(entry.id) { mutableStateOf(false) }
+    var draftItems by remember(entry.id) { mutableStateOf(entry.items) }
+    val displayEntry = PreAssemblyArchiveEntryWithItems(entry, draftItems)
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        ModernCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AppIconBubble(Icons.Outlined.Description, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(42.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(displayEntry.title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(displayEntry.completedAtText, color = MutedTextColor, fontSize = 13.sp)
+                    }
+                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                }
+
+                PreAssemblyArchiveSummaryCard(displayEntry)
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 410.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                ) {
+                    items(displayEntry.items, key = { "${it.offerId}_${it.orderId}" }) { item ->
+                        PreAssemblyArchiveItemRow(
+                            item = item,
+                            isEditing = isEditing,
+                            onItemChange = { updated ->
+                                draftItems = draftItems.map { old ->
+                                    if (old.offerId == updated.offerId && old.orderId == updated.orderId) updated else old
+                                }
+                            }
+                        )
+                    }
+                }
+
+                PreAssemblyArchiveDetailsActions(
+                    isEditing = isEditing,
+                    onEdit = { isEditing = true },
+                    onCancel = {
+                        draftItems = entry.items
+                        isEditing = false
+                    },
+                    onSave = {
+                        onSave(displayEntry)
+                        isEditing = false
+                    },
+                    onShare = { onShare(displayEntry) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveSummaryCard(entry: PreAssemblyArchiveEntry) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFFF7F9FF))
+            .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 11.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        PreAssemblyArchiveSummaryLine("Статус", entry.resultTitle, emphasized = true)
+        PreAssemblyArchiveSummaryLine("Всего позиций", entry.total.toString())
+        PreAssemblyArchiveSummaryLine("Проверено", entry.checked.toString())
+        PreAssemblyArchiveSummaryLine("Есть", entry.available.toString())
+        PreAssemblyArchiveSummaryLine("Нет / переместить", entry.toTransfer.toString())
+        PreAssemblyArchiveSummaryLine("Комментариев", entry.comments.toString())
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveSummaryLine(title: String, value: String, emphasized: Boolean = false) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+        Text(title, color = MutedTextColor, fontSize = 12.sp, modifier = Modifier.weight(0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            value,
+            color = MainTextColor,
+            fontWeight = if (emphasized) FontWeight.Bold else FontWeight.SemiBold,
+            fontSize = if (emphasized) 12.sp else 13.sp,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(1.15f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveItemRow(
+    item: PreAssemblyItem,
+    isEditing: Boolean,
+    onItemChange: (PreAssemblyItem) -> Unit
+) {
+    val needsTransfer = item.status == PreAssemblyStatus.NOT_AVAILABLE || item.status == PreAssemblyStatus.NEED_TRANSFER
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White)
+            .border(1.dp, PreAssemblyStatusColor(item.status).copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+            .padding(9.dp),
+        verticalArrangement = Arrangement.spacedBy(7.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(item.name, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Арт. ${item.offerId} · ${item.requiredQuantity} шт.", color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            PreAssemblyArchiveStatusBadge(item.status)
+        }
+
+        if (isEditing) {
+            PreAssemblyArchiveStatusSelector(
+                selected = item.status,
+                onSelected = { status -> onItemChange(PreAssemblyArchiveItemWithStatus(item, status)) }
+            )
+            AnimatedVisibility(
+                visible = needsTransfer,
+                enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = tween(210)),
+                exit = fadeOut(animationSpec = tween(130)) + shrinkVertically(animationSpec = tween(170))
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("К перемещению", color = MutedTextColor, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    PreAssemblyArchiveQuantityField(
+                        value = item.transferQuantity,
+                        onValueChange = { onItemChange(item.copy(transferQuantity = it)) },
+                        modifier = Modifier.width(86.dp)
+                    )
+                }
+            }
+            PreAssemblyArchiveCommentField(
+                value = item.comment,
+                onValueChange = { onItemChange(item.copy(comment = it)) },
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            if (needsTransfer) {
+                PreAssemblyInfoLine("К перемещению", "${item.transferQuantity.ifBlank { "0" }} шт.")
+            }
+            if (item.comment.isNotBlank()) {
+                Text(item.comment, color = MutedTextColor, fontSize = 12.sp, lineHeight = 16.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveStatusSelector(selected: PreAssemblyStatus, onSelected: (PreAssemblyStatus) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(42.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(Color(0xFFFAFBFF))
+                .border(1.dp, PreAssemblyStatusColor(selected).copy(alpha = 0.5f), RoundedCornerShape(13.dp))
+                .clickable { expanded = true }
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            PreAssemblyStatusDot(selected, size = 8.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                Text("Статус", color = MutedTextColor, fontSize = 10.sp, lineHeight = 11.sp, maxLines = 1)
+                Text(selected.title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 13.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = PreAssemblyStatusColor(selected), modifier = Modifier.size(18.dp).rotate(if (expanded) 180f else 0f))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(Color.White)) {
+            PreAssemblyStatus.values().forEach { status ->
+                DropdownMenuItem(
+                    text = {
+                        Text(status.title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    },
+                    leadingIcon = { PreAssemblyStatusDot(status, size = 8.dp) },
+                    onClick = {
+                        onSelected(status)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveQuantityField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = { raw -> onValueChange(raw.filter { it.isDigit() }.take(5)) },
+        modifier = modifier
+            .height(34.dp)
+            .clip(RoundedCornerShape(11.dp))
+            .background(Color.White)
+            .border(1.2.dp, AccentColor, RoundedCornerShape(11.dp))
+            .padding(horizontal = 8.dp),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        textStyle = androidx.compose.ui.text.TextStyle(
+            color = MainTextColor,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 13.sp,
+            textAlign = TextAlign.End
+        ),
+        decorationBox = { innerTextField ->
+            Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                    if (value.isBlank()) {
+                        Text("0", color = SoftTextColor, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                    innerTextField()
+                }
+                Spacer(Modifier.width(4.dp))
+                Text("шт.", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, maxLines = 1)
+            }
+        }
+    )
+}
+
+@Composable
+private fun PreAssemblyArchiveCommentField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .height(58.dp)
+            .clip(RoundedCornerShape(13.dp))
+            .background(Color(0xFFF7F9FF))
+            .border(1.dp, CardBorderColor, RoundedCornerShape(13.dp))
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        textStyle = androidx.compose.ui.text.TextStyle(
+            color = MainTextColor,
+            fontSize = 13.sp,
+            lineHeight = 16.sp
+        ),
+        decorationBox = { innerTextField ->
+            Box(Modifier.fillMaxSize()) {
+                if (value.isBlank()) {
+                    Text("Комментарий", color = MutedTextColor, fontSize = 12.sp, lineHeight = 15.sp)
+                }
+                innerTextField()
+            }
+        }
+    )
+}
+
+@Composable
+private fun PreAssemblyArchiveStatusBadge(status: PreAssemblyStatus) {
+    val title = when (status) {
+        PreAssemblyStatus.NOT_CHECKED -> "Не проверено"
+        PreAssemblyStatus.AVAILABLE -> "Есть"
+        PreAssemblyStatus.NOT_AVAILABLE -> "Нет"
+        PreAssemblyStatus.NEED_TRANSFER -> "Переместить"
+    }
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(PreAssemblyStatusBackground(status))
+            .padding(horizontal = 9.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        PreAssemblyStatusDot(status, size = 7.dp)
+        Text(title, color = PreAssemblyStatusColor(status), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveDetailsActions(
+    isEditing: Boolean,
+    onEdit: () -> Unit,
+    onCancel: () -> Unit,
+    onSave: () -> Unit,
+    onShare: () -> Unit
+) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        if (isEditing) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                PreAssemblyArchiveActionButton("Отмена", icon = Icons.Outlined.Close, primary = false, onClick = onCancel, modifier = Modifier.weight(1f))
+                PreAssemblyArchiveActionButton("Сохранить", icon = Icons.Outlined.CheckCircle, primary = true, onClick = onSave, modifier = Modifier.weight(1f))
+            }
+            PreAssemblyArchiveActionButton(
+                "Отправить текстом",
+                icon = Icons.AutoMirrored.Outlined.Send,
+                primary = true,
+                onClick = onShare,
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                PreAssemblyArchiveActionButton("Редактировать", icon = Icons.Outlined.Edit, primary = false, onClick = onEdit, modifier = Modifier.weight(1f))
+                PreAssemblyArchiveActionButton("Отправить", icon = Icons.AutoMirrored.Outlined.Send, primary = true, onClick = onShare, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveActionButton(
+    text: String,
+    icon: ImageVector,
+    primary: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(12.dp)
+    if (primary) {
+        Button(
+            onClick = onClick,
+            modifier = modifier.height(36.dp),
+            shape = shape,
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(text, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = modifier.height(36.dp),
+            shape = shape,
+            border = BorderStroke(1.dp, CardBorderColor),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = MainTextColor)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(text, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+private fun PreAssemblyArchiveEntryWithItems(
+    entry: PreAssemblyArchiveEntry,
+    items: List<PreAssemblyItem>
+): PreAssemblyArchiveEntry {
+    val checked = items.count { it.status != PreAssemblyStatus.NOT_CHECKED }
+    val available = items.count { it.status == PreAssemblyStatus.AVAILABLE }
+    val toTransfer = items.count { it.status == PreAssemblyStatus.NOT_AVAILABLE || it.status == PreAssemblyStatus.NEED_TRANSFER }
+    val notChecked = items.size - checked
+    val comments = items.count { it.comment.isNotBlank() }
+    val resultTitle = when {
+        notChecked > 0 -> "Предварительная сборка завершена с непроверенными позициями"
+        toTransfer > 0 -> "Предварительная сборка завершена с проблемами"
+        else -> "Предварительная сборка завершена без проблем"
+    }
+    return entry.copy(
+        resultTitle = resultTitle,
+        total = items.size,
+        checked = checked,
+        available = available,
+        toTransfer = toTransfer,
+        notChecked = notChecked,
+        comments = comments,
+        items = items
+    )
+}
+
+private fun PreAssemblyArchiveItemWithStatus(item: PreAssemblyItem, status: PreAssemblyStatus): PreAssemblyItem {
+    val transferQuantity = when (status) {
+        PreAssemblyStatus.NOT_CHECKED -> ""
+        PreAssemblyStatus.AVAILABLE -> "0"
+        PreAssemblyStatus.NOT_AVAILABLE -> item.requiredQuantity.toString()
+        PreAssemblyStatus.NEED_TRANSFER -> item.transferQuantity.takeIf { it.isNotBlank() && it != "0" }.orEmpty()
+    }
+    return item.copy(status = status, transferQuantity = transferQuantity)
+}
+
+private fun PreAssemblyArchiveMessageText(entry: PreAssemblyArchiveEntry): String {
+    val transferItems = entry.items.filter {
+        it.status == PreAssemblyStatus.NOT_AVAILABLE || it.status == PreAssemblyStatus.NEED_TRANSFER
+    }
+    val summary = """
+Итог проверки:
+Всего позиций: ${entry.total}
+Проверено: ${entry.checked}
+Есть: ${entry.available}
+Нет / переместить: ${entry.toTransfer}
+Не проверено: ${entry.notChecked}
+    """.trimIndent()
+
+    if (transferItems.isEmpty()) {
+        return """
+Добрый день.
+
+По предварительной сборке заказов Ozon от ${entry.completedAtText} перемещение на склад не требуется.
+
+$summary
+        """.trimIndent()
+    }
+
+    val rows = transferItems.mapIndexed { index, item ->
+        val reason = when (item.status) {
+            PreAssemblyStatus.NOT_AVAILABLE -> "Нет в наличии"
+            PreAssemblyStatus.NEED_TRANSFER -> "Недостаточное количество"
+            else -> ""
+        }
+        """${index + 1}. Артикул: ${item.offerId}
+Товар: ${item.name}
+Причина перемещения: $reason
+Количество к перемещению: ${item.transferQuantity.ifBlank { "0" }} шт.${if (item.comment.isBlank()) "" else "\nКомментарий: ${item.comment}"}
+""".trimIndent()
+    }
+
+    return """
+Добрый день.
+
+По предварительной сборке заказов Ozon от ${entry.completedAtText} нужно сделать перемещение на склад:
+
+${rows.joinToString("\n\n")}
+
+Итого позиций к перемещению: ${rows.size}.
+
+$summary
+    """.trimIndent()
+}
+
+@Composable
 private fun PreAssemblyBulkActionsDialog(
     visibleCount: Int,
     totalCount: Int,
     isCompleted: Boolean,
+    archive: List<PreAssemblyArchiveEntry>,
+    printBridgeHost: String,
+    onPrintBridgeHostChange: (String) -> Unit,
+    printPrinterName: String,
+    onPrintPrinterNameChange: (String) -> Unit,
+    onOpenArchive: () -> Unit,
+    onPrintTest: () -> Unit,
+    onSharePrintLogs: () -> Unit,
     onAction: (PreAssemblyBulkAction) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -3688,13 +4757,50 @@ private fun PreAssemblyBulkActionsDialog(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Массовые действия", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                        Text("Действие применится только к видимым позициям: $visibleCount из $totalCount.", color = MutedTextColor, fontSize = 13.sp)
+                        Text("Дополнительно", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Архив и действия с видимыми позициями.", color = MutedTextColor, fontSize = 13.sp)
                     }
                     AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
+                if (archive.isNotEmpty()) {
+                    PreAssemblyArchiveActionRow(archive = archive, onClick = onOpenArchive)
+                    HorizontalDivider(color = CardBorderColor.copy(alpha = 0.72f))
+                }
+                ModernTextField(
+                    value = printBridgeHost,
+                    onValueChange = onPrintBridgeHostChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "IP моста печати",
+                    placeholder = "192.168.10.104",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                    leadingIcon = Icons.Outlined.Settings
+                )
+                ModernTextField(
+                    value = printPrinterName,
+                    onValueChange = onPrintPrinterNameChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "Имя принтера Windows",
+                    placeholder = "HP LaserJet MFP M129-M134",
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                    leadingIcon = Icons.Outlined.Print
+                )
+                PreAssemblyUtilityActionRow(
+                    title = "Тестовая печать",
+                    subtitle = "Проверить ${printBridgeHost}:8787 -> $printPrinterName",
+                    icon = Icons.Outlined.Print,
+                    onClick = onPrintTest
+                )
+                PreAssemblyUtilityActionRow(
+                    title = "Выгрузить логи печати",
+                    subtitle = "Файл со всеми проверками моста и ошибками принтера",
+                    icon = Icons.Outlined.Description,
+                    onClick = onSharePrintLogs
+                )
+                HorizontalDivider(color = CardBorderColor.copy(alpha = 0.72f))
                 if (isCompleted) {
                     PreAssemblyMessageCard("Сборка завершена. Верните её в работу, чтобы менять позиции.")
+                } else if (totalCount == 0) {
+                    PreAssemblyMessageCard("Активной предварительной сборки сейчас нет.")
                 }
                 PreAssemblyBulkAction.values().forEach { action ->
                     PreAssemblyBulkActionRow(
@@ -3705,6 +4811,64 @@ private fun PreAssemblyBulkActionsDialog(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PreAssemblyUtilityActionRow(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.48f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White)
+            .border(1.dp, CardBorderColor, RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(icon, contentDescription = null, tint = AccentColor, modifier = Modifier.size(21.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MutedTextColor, modifier = Modifier.rotate(-90f))
+    }
+}
+
+@Composable
+private fun PreAssemblyArchiveActionRow(archive: List<PreAssemblyArchiveEntry>, onClick: () -> Unit) {
+    val latest = archive.maxByOrNull { it.completedAt }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color.White)
+            .border(1.dp, CardBorderColor, RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(Icons.Outlined.Archive, contentDescription = null, tint = AccentColor, modifier = Modifier.size(21.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text("Архив предварительных сборок", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                latest?.let { "Последняя: ${it.completedAtText}, позиций: ${it.total}" } ?: "Открыть архив",
+                color = MutedTextColor,
+                fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        StatusBadge(archive.size.toString(), tone = BadgeTone.Blue)
     }
 }
 
@@ -3953,7 +5117,7 @@ private fun PreAssemblyItemEditorDialog(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     PreAssemblyMetaChip("Арт. ${item.offerId}")
-                    PreAssemblyMetaChip("${item.requiredQuantity} шт.", background = Color(0xFFF4F6FB), contentColor = MainTextColor)
+                    PreAssemblyQuantityChip(item.requiredQuantity)
                     PreAssemblyStatusPill(item.status)
                 }
 
@@ -4006,18 +5170,56 @@ private fun PreAssemblyItemEditorDialog(
 }
 
 @Composable
+private fun PreAssemblyQuantityChip(quantity: Int, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0xFFF4F6FB))
+            .padding(horizontal = 9.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text(
+            quantity.toString(),
+            color = MainTextColor,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 17.sp,
+            lineHeight = 18.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            "шт.",
+            color = MainTextColor,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 11.sp,
+            lineHeight = 12.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
 private fun PreAssemblyMetaChip(
     text: String,
     background: Color = SoftBlueColor,
-    contentColor: Color = AccentColor
+    contentColor: Color = AccentColor,
+    modifier: Modifier = Modifier
 ) {
     Box(
-        Modifier
+        modifier
             .clip(RoundedCornerShape(999.dp))
             .background(background)
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
-        Text(text, color = contentColor, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, maxLines = 1)
+        Text(
+            text,
+            color = contentColor,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -4130,6 +5332,7 @@ private fun PreAssemblyActionPanel(
     hasVisibleItems: Boolean,
     hasReport: Boolean,
     hasActiveFilters: Boolean,
+    hasArchive: Boolean,
     isCompleted: Boolean,
     onOpenControls: () -> Unit,
     onOpenBulkActions: () -> Unit,
@@ -4150,7 +5353,7 @@ private fun PreAssemblyActionPanel(
         )
         PreAssemblyMinimalActionButton(
             icon = Icons.Outlined.MoreVert,
-            enabled = hasItems && hasVisibleItems && !isCompleted,
+            enabled = hasArchive || (hasItems && hasVisibleItems && !isCompleted),
             onClick = onOpenBulkActions
         )
         PreAssemblyMinimalActionButton(
@@ -4232,7 +5435,13 @@ private fun PreAssemblyMessageCard(message: String) {
 }
 
 @Composable
-private fun PreAssemblyReportDialog(reportText: String, onDismiss: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit) {
+private fun PreAssemblyReportDialog(
+    reportText: String,
+    onDismiss: () -> Unit,
+    onCopy: () -> Unit,
+    onPrint: () -> Unit,
+    onShare: () -> Unit
+) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         ModernCard(
             Modifier
@@ -4271,12 +5480,14 @@ private fun PreAssemblyReportDialog(reportText: String, onDismiss: () -> Unit, o
                     if (maxWidth < 430.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppSecondaryButton("Скопировать", icon = Icons.Outlined.Description, onClick = onCopy, modifier = Modifier.fillMaxWidth())
-                            AppPrimaryButton("Отправить через мессенджер", icon = Icons.Outlined.CheckCircle, onClick = onShare, modifier = Modifier.fillMaxWidth())
+                            AppSecondaryButton("Напечатать", icon = Icons.Outlined.Print, onClick = onPrint, modifier = Modifier.fillMaxWidth())
+                            AppPrimaryButton("Печать + отправка", icon = Icons.AutoMirrored.Outlined.Send, onClick = onShare, modifier = Modifier.fillMaxWidth())
                         }
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppSecondaryButton("Скопировать", icon = Icons.Outlined.Description, onClick = onCopy, modifier = Modifier.weight(1f))
-                            AppPrimaryButton("Отправить через мессенджер", icon = Icons.Outlined.CheckCircle, onClick = onShare, modifier = Modifier.weight(1f))
+                            AppSecondaryButton("Скопировать", icon = Icons.Outlined.Description, onClick = onCopy, modifier = Modifier.weight(0.95f))
+                            AppSecondaryButton("Напечатать", icon = Icons.Outlined.Print, onClick = onPrint, modifier = Modifier.weight(0.95f))
+                            AppPrimaryButton("Печать + отправка", icon = Icons.AutoMirrored.Outlined.Send, onClick = onShare, modifier = Modifier.weight(1.2f))
                         }
                     }
                 }

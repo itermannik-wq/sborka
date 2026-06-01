@@ -2,16 +2,19 @@ package com.boldrex.postavki
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 interface OzonOrderRepository {
+    val lastWarning: String? get() = null
     suspend fun loadOrders(): List<OzonOrderItem>
 }
 
@@ -35,14 +38,20 @@ data class PreAssemblyUiState(
     val message: String? = null,
     val reportText: String = "",
     val isCompleted: Boolean = false,
-    val completedAt: String? = null
+    val completedAt: String? = null,
+    val archive: List<PreAssemblyArchiveEntry> = emptyList()
 )
 
 class PreAssemblyViewModel(
-    private val repository: OzonOrderRepository = StubOzonOrderRepository()
+    private val repository: OzonOrderRepository = OzonApiOrderRepository(),
+    private val archiveRepository: PreAssemblyArchiveRepository? = null
 ) : ViewModel() {
     private val _state = MutableStateFlow(PreAssemblyUiState())
     val state: StateFlow<PreAssemblyUiState> = _state.asStateFlow()
+
+    init {
+        refreshArchive()
+    }
 
     fun loadOrders() {
         viewModelScope.launch {
@@ -58,7 +67,8 @@ class PreAssemblyViewModel(
                                 offerId = offerId,
                                 sku = first.sku,
                                 name = first.name,
-                                requiredQuantity = grouped.sumOf { it.quantity }
+                                requiredQuantity = grouped.sumOf { preAssemblyRequiredQuantity(it) },
+                                imageUrl = grouped.firstNotNullOfOrNull { it.imageUrl }
                             )
                         }
                     _state.update {
@@ -68,12 +78,15 @@ class PreAssemblyViewModel(
                             items = merged,
                             reportText = "",
                             isCompleted = false,
-                            completedAt = null
+                            completedAt = null,
+                            message = repository.lastWarning
                         )
                     }
                 }
                 .onFailure {
-                    _state.update { it.copy(isLoading = false, error = "Не удалось загрузить заказы. Попробуйте снова.") }
+                    val message = it.message?.takeIf(String::isNotBlank)
+                        ?: "Не удалось загрузить заказы. Попробуйте снова."
+                    _state.update { state -> state.copy(isLoading = false, error = message) }
                 }
         }
     }
@@ -137,12 +150,23 @@ class PreAssemblyViewModel(
     }
 
     fun finishPreAssembly() {
-        val items = _state.value.items
+        val current = _state.value
+        if (current.isCompleted) {
+            _state.update { it.copy(message = "Предварительная сборка уже завершена и находится в архиве") }
+            return
+        }
+        val items = current.items
         if (items.isEmpty()) {
             _state.update { it.copy(message = "Нет позиций для завершения") }
             return
         }
+        val completedAtMillis = System.currentTimeMillis()
         val finishedAt = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))
+        val checkedCount = items.count { it.status != PreAssemblyStatus.NOT_CHECKED }
+        val availableCount = items.count { it.status == PreAssemblyStatus.AVAILABLE }
+        val toTransferCount = items.count { it.status == PreAssemblyStatus.NOT_AVAILABLE || it.status == PreAssemblyStatus.NEED_TRANSFER }
+        val notCheckedCount = items.size - checkedCount
+        val commentsCount = items.count { it.comment.isNotBlank() }
         val hasProblems = items.any { it.status == PreAssemblyStatus.NOT_AVAILABLE || it.status == PreAssemblyStatus.NEED_TRANSFER }
         val hasUnchecked = items.any { it.status == PreAssemblyStatus.NOT_CHECKED }
         val result = when {
@@ -150,7 +174,31 @@ class PreAssemblyViewModel(
             hasProblems -> "Предварительная сборка завершена с проблемами"
             else -> "Предварительная сборка завершена без проблем"
         }
-        _state.update { it.copy(isCompleted = true, completedAt = finishedAt, message = result) }
+        val archiveEntry = PreAssemblyArchiveEntry(
+            id = -completedAtMillis,
+            title = "Предварительная сборка Ozon от $finishedAt",
+            completedAt = completedAtMillis,
+            completedAtText = finishedAt,
+            resultTitle = result,
+            total = items.size,
+            checked = checkedCount,
+            available = availableCount,
+            toTransfer = toTransferCount,
+            notChecked = notCheckedCount,
+            comments = commentsCount,
+            items = items
+        )
+        _state.update {
+            it.copy(
+                items = emptyList(),
+                isCompleted = false,
+                completedAt = null,
+                reportText = "",
+                message = "$result. Сборка добавлена в архив",
+                archive = listOf(archiveEntry) + it.archive
+            )
+        }
+        saveArchiveEntry(archiveEntry)
     }
 
     fun returnToWork() {
@@ -203,6 +251,35 @@ ${rows.joinToString("\n\n")}
         return true
     }
 
+    fun updateArchiveEntry(entry: PreAssemblyArchiveEntry) {
+        val archiveRepo = archiveRepository
+        val previousArchive = _state.value.archive
+        _state.update { state ->
+            state.copy(
+                archive = state.archive.map { archived -> if (archived.id == entry.id) entry else archived },
+                message = "Архивная сборка обновлена"
+            )
+        }
+        if (archiveRepo == null || entry.id <= 0) return
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    archiveRepo.update(entry)
+                    archiveRepo.listArchive()
+                }
+            }.onSuccess { archive ->
+                _state.update { it.copy(archive = archive) }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        archive = previousArchive,
+                        message = "Не удалось сохранить правки: ${error.message ?: "ошибка записи"}"
+                    )
+                }
+            }
+        }
+    }
+
     fun clearMessage() = _state.update { it.copy(message = null) }
 
     private fun canEdit(): Boolean {
@@ -236,5 +313,35 @@ ${rows.joinToString("\n\n")}
 
     private fun updateItem(id: String, update: (PreAssemblyItem) -> PreAssemblyItem) {
         _state.update { state -> state.copy(items = state.items.map { if (it.id == id) update(it) else it }, reportText = "") }
+    }
+
+    private fun refreshArchive() {
+        val archiveRepo = archiveRepository ?: return
+        viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { archiveRepo.listArchive() } }
+                .onSuccess { archive -> _state.update { it.copy(archive = archive) } }
+        }
+    }
+
+    private fun saveArchiveEntry(entry: PreAssemblyArchiveEntry) {
+        val archiveRepo = archiveRepository ?: return
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    archiveRepo.save(entry.copy(id = 0))
+                    archiveRepo.listArchive()
+                }
+            }.onSuccess { archive ->
+                _state.update { it.copy(archive = archive) }
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(
+                        message = "Сборка завершена, но архив не сохранился: ${error.message ?: "ошибка записи"}",
+                        items = entry.items,
+                        archive = it.archive.filterNot { archived -> archived.id == entry.id }
+                    )
+                }
+            }
+        }
     }
 }

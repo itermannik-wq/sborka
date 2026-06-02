@@ -141,6 +141,21 @@ data class PreAssemblyArchiveItemEntity(
     val comment: String
 )
 
+@Entity(tableName = "fbs_assembly_history", indices = [Index("createdAt"), Index("orderNumber"), Index("status")])
+data class FbsAssemblyHistoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val orderNumber: String,
+    val productName: String,
+    val productImageUrl: String?,
+    val quantity: Int,
+    val startedAt: Long,
+    val finishedAt: Long?,
+    val durationSeconds: Long,
+    val status: String,
+    val problemReason: String?,
+    val createdAt: Long
+)
+
 @Dao
 interface AppDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
@@ -179,6 +194,9 @@ interface AppDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertPreAssemblyArchiveItems(entities: List<PreAssemblyArchiveItemEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertFbsAssemblyHistory(entity: FbsAssemblyHistoryEntity): Long
+
     @Update suspend fun updateShipment(entity: ShipmentEntity)
     @Update suspend fun updateBox(entity: BoxEntity)
     @Update suspend fun updateBoxItem(entity: BoxItemEntity)
@@ -216,6 +234,9 @@ interface AppDao {
 
     @Query("SELECT * FROM products WHERE barcode = :barcode LIMIT 1")
     suspend fun productByBarcode(barcode: String): ProductEntity?
+
+    @Query("SELECT value FROM app_settings WHERE `key` = :key LIMIT 1")
+    suspend fun settingValue(key: String): String?
 
     @Query("SELECT * FROM shipment_cities WHERE id = :id LIMIT 1")
     suspend fun shipmentCityById(id: Long): ShipmentCityEntity?
@@ -334,6 +355,14 @@ interface AppDao {
         ORDER BY sortIndex ASC, id ASC
     """)
     suspend fun listPreAssemblyArchiveItems(archiveId: Long): List<PreAssemblyArchiveItemData>
+
+    @Query("""
+        SELECT id, orderNumber, productName, productImageUrl, quantity, startedAt,
+               finishedAt, durationSeconds, status, problemReason, createdAt
+        FROM fbs_assembly_history
+        ORDER BY createdAt DESC, id DESC
+    """)
+    suspend fun listFbsAssemblyHistory(): List<FbsAssemblyHistoryEntity>
 }
 
 @Database(
@@ -341,9 +370,9 @@ interface AppDao {
         MarketplaceEntity::class, CityEntity::class, ProductEntity::class, ShipmentEntity::class,
         ShipmentCityEntity::class, BoxEntity::class, BoxItemEntity::class, ImportLogEntity::class,
         ReportLogEntity::class, AppSettingEntity::class, PreAssemblyArchiveEntity::class,
-        PreAssemblyArchiveItemEntity::class
+        PreAssemblyArchiveItemEntity::class, FbsAssemblyHistoryEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class LocalDatabase : RoomDatabase() {
@@ -354,7 +383,7 @@ abstract class LocalDatabase : RoomDatabase() {
 
         fun get(context: Context): LocalDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(context.applicationContext, LocalDatabase::class.java, "postavki.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { INSTANCE = it }
@@ -399,6 +428,31 @@ abstract class LocalDatabase : RoomDatabase() {
                 )
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_pre_assembly_archive_items_archiveId` ON `pre_assembly_archive_items` (`archiveId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_pre_assembly_archive_items_offerId` ON `pre_assembly_archive_items` (`offerId`)")
+            }
+        }
+
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `fbs_assembly_history` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `orderNumber` TEXT NOT NULL,
+                        `productName` TEXT NOT NULL,
+                        `productImageUrl` TEXT,
+                        `quantity` INTEGER NOT NULL,
+                        `startedAt` INTEGER NOT NULL,
+                        `finishedAt` INTEGER,
+                        `durationSeconds` INTEGER NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `problemReason` TEXT,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_fbs_assembly_history_createdAt` ON `fbs_assembly_history` (`createdAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_fbs_assembly_history_orderNumber` ON `fbs_assembly_history` (`orderNumber`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_fbs_assembly_history_status` ON `fbs_assembly_history` (`status`)")
             }
         }
     }

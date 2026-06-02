@@ -59,7 +59,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
@@ -72,6 +74,7 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Print
@@ -79,6 +82,7 @@ import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -138,7 +142,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
 import kotlin.math.PI
 import kotlin.math.cos
@@ -162,7 +172,9 @@ private val WarningColor = Color(0xFFF97316)
 private val CompactScreenBreakpoint = 380.dp
 private val NarrowScreenBreakpoint = 340.dp
 
-private enum class AppMode { MENU, SUPPLY, PRE_ASSEMBLY }
+private enum class AppMode { MENU, SUPPLY, PRE_ASSEMBLY, FBS_ASSEMBLY }
+
+private enum class FbsAssemblyPage { HOME, LIST, WORK, FINISH, ANALYTICS, HISTORY, SETTINGS }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -728,16 +740,29 @@ fun AppRoot(vm: AppViewModel) {
             )
         )
     }
+    val fbsAssemblyVm = remember(context.applicationContext) {
+        FbsAssemblyViewModel(
+            historyRepository = FbsAssemblyHistoryRepository(
+                LocalDatabase.get(context.applicationContext).dao()
+            )
+        )
+    }
     val state by vm.state.collectAsState()
     val preAssemblyState by preAssemblyVm.state.collectAsState()
+    val fbsAssemblyState by fbsAssemblyVm.state.collectAsState()
     val showStartupLoader = mode == AppMode.SUPPLY && state.isBusy && state.shipments.isEmpty() && state.screen == AppScreen.SHIPMENTS
     Box(Modifier.fillMaxSize().background(AppBackgroundGradient)) {
         if (mode == AppMode.MENU) {
             MainMenuScreen(
                 onBack = { context.findActivity()?.finish() },
                 onSupply = { mode = AppMode.SUPPLY },
-                onPreAssembly = { mode = AppMode.PRE_ASSEMBLY }
+                onPreAssembly = { mode = AppMode.PRE_ASSEMBLY },
+                onFbsAssembly = { mode = AppMode.FBS_ASSEMBLY }
             )
+            return@Box
+        }
+        if (mode == AppMode.FBS_ASSEMBLY) {
+            FbsAssemblyScreen(state = fbsAssemblyState, vm = fbsAssemblyVm, onBack = { mode = AppMode.MENU })
             return@Box
         }
         if (mode == AppMode.PRE_ASSEMBLY) {
@@ -2652,7 +2677,12 @@ private data class ModeBadgeData(
 )
 
 @Composable
-private fun MainMenuScreen(onBack: () -> Unit, onSupply: () -> Unit, onPreAssembly: () -> Unit) {
+private fun MainMenuScreen(
+    onBack: () -> Unit,
+    onSupply: () -> Unit,
+    onPreAssembly: () -> Unit,
+    onFbsAssembly: () -> Unit
+) {
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
@@ -2699,6 +2729,19 @@ private fun MainMenuScreen(onBack: () -> Unit, onSupply: () -> Unit, onPreAssemb
                         ModeBadgeData("Список бухгалтеру", Icons.Outlined.CheckCircle, SuccessColor)
                     ),
                     onClick = onPreAssembly
+                )
+            }
+            item {
+                ModeChoiceCard(
+                    title = "Сборка",
+                    subtitle = "Последовательная FBS-сборка заказов Ozon с прогрессом, канистрами и таймером до 16:00",
+                    icon = Icons.Outlined.QrCodeScanner,
+                    accent = WarningColor,
+                    badges = listOf(
+                        ModeBadgeData("Заказы по одному", Icons.Outlined.Inventory2, AccentColor),
+                        ModeBadgeData("Таймер 16:00", Icons.Outlined.CalendarMonth, WarningColor)
+                    ),
+                    onClick = onFbsAssembly
                 )
             }
         }
@@ -2780,7 +2823,7 @@ private fun ModeMenuHero(onBack: () -> Unit, compact: Boolean) {
                 color = MainTextColor
             )
             Text(
-                "Выберите, что нужно сделать сейчас.\nОсновная поставка и предварительная сборка открываются отдельно.",
+                "Выберите, что нужно сделать сейчас.\nПоставки, проверка остатков и FBS-сборка открываются отдельно.",
                 color = MutedTextColor,
                 fontSize = if (compact) 17.sp else 19.sp,
                 lineHeight = if (compact) 25.sp else 28.sp
@@ -3005,6 +3048,1297 @@ private fun ModeBadge(badge: ModeBadgeData, modifier: Modifier = Modifier) {
             overflow = TextOverflow.Ellipsis
         )
     }
+}
+
+@Composable
+private fun FbsAssemblyScreen(state: FbsAssemblyUiState, vm: FbsAssemblyViewModel, onBack: () -> Unit) {
+    var pageName by rememberSaveable { mutableStateOf(FbsAssemblyPage.HOME.name) }
+    var showRefreshConfirm by rememberSaveable { mutableStateOf(false) }
+    var showLabelScanner by rememberSaveable { mutableStateOf(false) }
+    val page = FbsAssemblyPage.values().firstOrNull { it.name == pageName } ?: FbsAssemblyPage.HOME
+
+    LaunchedEffect(Unit) {
+        if (!state.isLoaded && !state.isLoading) vm.loadOrders()
+    }
+    LaunchedEffect(state.isFinished) {
+        if (state.isFinished) pageName = FbsAssemblyPage.FINISH.name
+    }
+    LaunchedEffect(state.message) {
+        if (state.message != null) {
+            delay(2600)
+            vm.clearMessage()
+        }
+    }
+
+    fun refreshOrders() {
+        if (state.isStarted && !state.isFinished) {
+            showRefreshConfirm = true
+        } else {
+            vm.loadOrders()
+        }
+    }
+
+    if (showLabelScanner) {
+        BarcodeScannerScreen(
+            onCodeScanned = { code ->
+                showLabelScanner = false
+                vm.scanCurrentOrderLabel(code)
+            },
+            onClose = { showLabelScanner = false },
+            title = "Наведите камеру на штрихкод или QR-код этикетки Ozon"
+        )
+        return
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            FbsAssemblyHeader(
+                onBack = {
+                    if (page == FbsAssemblyPage.HOME) onBack() else pageName = FbsAssemblyPage.HOME.name
+                },
+                onRefresh = ::refreshOrders,
+                isLoading = state.isLoading,
+                subtitle = when (page) {
+                    FbsAssemblyPage.HOME -> "FBS-заказы Ozon для последовательной сборки"
+                    FbsAssemblyPage.LIST -> "Весь список заказов и товаров"
+                    FbsAssemblyPage.WORK -> "Текущий заказ и прогресс сборки"
+                    FbsAssemblyPage.FINISH -> "Итоги завершённой сборки"
+                    FbsAssemblyPage.ANALYTICS -> "Среднее время, прогноз и риски дедлайна"
+                    FbsAssemblyPage.HISTORY -> "Локальная история собранных заказов"
+                    FbsAssemblyPage.SETTINGS -> "Дедлайн, запас и базовое время"
+                }
+            )
+
+            when {
+                state.isLoading && !state.isLoaded -> FbsAssemblyLoadingCard()
+                state.error != null -> FbsAssemblyErrorCard(message = state.error, onRetry = vm::loadOrders)
+                else -> when (page) {
+                    FbsAssemblyPage.HOME -> FbsAssemblyHomeContent(
+                        state = state,
+                        onOpenList = { pageName = FbsAssemblyPage.LIST.name },
+                        onOpenAnalytics = { pageName = FbsAssemblyPage.ANALYTICS.name },
+                        onOpenHistory = { pageName = FbsAssemblyPage.HISTORY.name },
+                        onOpenSettings = { pageName = FbsAssemblyPage.SETTINGS.name },
+                        onRefresh = ::refreshOrders,
+                        onStart = {
+                            vm.startAssembly()
+                            if (state.orders.isNotEmpty()) pageName = FbsAssemblyPage.WORK.name
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FbsAssemblyPage.LIST -> FbsAssemblyOrderListContent(
+                        state = state,
+                        onRefresh = ::refreshOrders,
+                        modifier = Modifier.weight(1f)
+                    )
+                    FbsAssemblyPage.WORK -> FbsAssemblyWorkContent(
+                        state = state,
+                        onCollect = vm::collectCurrentOrder,
+                        onScanLabel = { showLabelScanner = true },
+                        onSkip = vm::skipCurrentOrder,
+                        onRestart = {
+                            vm.resetProgress()
+                            pageName = FbsAssemblyPage.HOME.name
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FbsAssemblyPage.FINISH -> FbsAssemblyFinishContent(
+                        state = state,
+                        onRestart = {
+                            vm.resetProgress()
+                            pageName = FbsAssemblyPage.HOME.name
+                        },
+                        onReload = {
+                            vm.loadOrders()
+                            pageName = FbsAssemblyPage.HOME.name
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FbsAssemblyPage.ANALYTICS -> FbsAssemblyAnalyticsContent(
+                        state = state,
+                        modifier = Modifier.weight(1f)
+                    )
+                    FbsAssemblyPage.HISTORY -> FbsAssemblyHistoryContent(
+                        state = state,
+                        modifier = Modifier.weight(1f)
+                    )
+                    FbsAssemblyPage.SETTINGS -> FbsAssemblySettingsContent(
+                        settings = state.settings,
+                        onSave = vm::saveForecastSettings,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        if (state.isLoading && state.isLoaded) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 82.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Color.White.copy(alpha = 0.94f))
+                    .border(1.dp, CardBorderColor, RoundedCornerShape(999.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(color = AccentColor, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                    Text("Обновляем заказы", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+            }
+        }
+        AnimatedVisibility(
+            visible = state.message != null,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 14.dp, vertical = 88.dp),
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 3 })
+        ) {
+            state.message?.let { AppMessage(text = it, onClose = vm::clearMessage) }
+        }
+    }
+
+    if (showRefreshConfirm) {
+        FbsAssemblyRefreshConfirmDialog(
+            onDismiss = { showRefreshConfirm = false },
+            onConfirm = {
+                showRefreshConfirm = false
+                vm.loadOrders()
+                pageName = FbsAssemblyPage.HOME.name
+            }
+        )
+    }
+}
+
+@Composable
+private fun FbsAssemblyHeader(
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    isLoading: Boolean,
+    subtitle: String
+) {
+    ModernCard(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            AppIconActionButton(Icons.AutoMirrored.Outlined.ArrowBack, "Назад", onClick = onBack)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "Сборка FBS",
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MainTextColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    subtitle,
+                    color = MutedTextColor,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            AppIconActionButton(
+                icon = Icons.Outlined.FileDownload,
+                contentDescription = "Обновить заказы",
+                primary = true,
+                onClick = onRefresh,
+                modifier = Modifier.alpha(if (isLoading) 0.55f else 1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyHomeContent(
+    state: FbsAssemblyUiState,
+    onOpenList: () -> Unit,
+    onOpenAnalytics: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onRefresh: () -> Unit,
+    onStart: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 18.dp)
+    ) {
+        item {
+            FbsAssemblySummaryCard(state)
+        }
+        item {
+            FbsAssemblyForecastCard(state)
+        }
+        item {
+            ModernCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FbsAssemblyLargeActionButton(
+                        text = "Посмотреть весь список заказов",
+                        icon = Icons.Outlined.Description,
+                        enabled = state.orders.isNotEmpty() && !state.isLoading,
+                        onClick = onOpenList,
+                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                    )
+                    FbsAssemblyLargeActionButton(
+                        text = "Начать сборку",
+                        icon = Icons.Outlined.CheckCircle,
+                        enabled = state.orders.isNotEmpty() && !state.isLoading,
+                        onClick = onStart,
+                        modifier = Modifier.fillMaxWidth().height(58.dp)
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AppSecondaryButton(
+                            text = "Аналитика",
+                            icon = Icons.Outlined.Analytics,
+                            onClick = onOpenAnalytics,
+                            modifier = Modifier.weight(1f)
+                        )
+                        AppSecondaryButton(
+                            text = "История",
+                            icon = Icons.Outlined.History,
+                            onClick = onOpenHistory,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    AppSecondaryButton(
+                        text = "Настройки прогноза",
+                        icon = Icons.Outlined.Settings,
+                        onClick = onOpenSettings,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    AppSecondaryButton(
+                        text = "Обновить",
+                        icon = Icons.Outlined.FileDownload,
+                        enabled = !state.isLoading,
+                        onClick = onRefresh,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+        item {
+            when {
+                state.isLoading -> FbsAssemblyLoadingCard()
+                state.orders.isEmpty() && state.isLoaded -> FbsAssemblyEmptyCard()
+                state.orders.isEmpty() -> FbsAssemblyLoadingCard()
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyLargeActionButton(
+    text: String,
+    icon: ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.defaultMinSize(minHeight = 54.dp),
+        shape = RoundedCornerShape(14.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            lineHeight = 16.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun FbsAssemblyOrderListContent(
+    state: FbsAssemblyUiState,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = 18.dp)
+    ) {
+        item {
+            FbsAssemblySummaryCard(state)
+        }
+        item {
+            AppPrimaryButton(
+                text = "Обновить",
+                icon = Icons.Outlined.FileDownload,
+                enabled = !state.isLoading,
+                onClick = onRefresh,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        if (state.orders.isEmpty()) {
+            item { FbsAssemblyEmptyCard() }
+        } else {
+            items(state.orders, key = { it.orderNumber }) { order ->
+                FbsAssemblyOrderCard(order = order, large = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyWorkContent(
+    state: FbsAssemblyUiState,
+    onCollect: () -> Unit,
+    onScanLabel: () -> Unit,
+    onSkip: () -> Unit,
+    onRestart: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val now by produceState(initialValue = LocalDateTime.now()) {
+        while (true) {
+            value = LocalDateTime.now()
+            delay(1_000)
+        }
+    }
+    val currentOrder = state.currentOrder
+
+    if (state.isFinished) {
+        FbsAssemblyFinishContent(state = state, onRestart = onRestart, onReload = onRestart, modifier = modifier)
+        return
+    }
+
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FbsAssemblyProgressPanel(state = state, now = now)
+        if (currentOrder == null) {
+            FbsAssemblyEmptyCard(
+                title = "Нет текущего заказа",
+                text = "Нажмите «Начать сборку» на стартовом экране или обновите список заказов."
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 4.dp)
+            ) {
+                item {
+                    FbsAssemblyOrderCard(order = currentOrder, large = true)
+                }
+            }
+            ModernCard(Modifier.fillMaxWidth()) {
+                Column(
+                    Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    AppPrimaryButton(
+                        text = "Заказ собран",
+                        icon = Icons.Outlined.CheckCircle,
+                        onClick = onCollect,
+                        modifier = Modifier.fillMaxWidth().height(56.dp)
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AppSecondaryButton(
+                            text = "Пропустить",
+                            icon = Icons.Outlined.Archive,
+                            onClick = onSkip,
+                            modifier = Modifier.weight(1f).height(52.dp)
+                        )
+                        AppSecondaryButton(
+                            text = "Скан этикетки",
+                            icon = Icons.Outlined.QrCodeScanner,
+                            onClick = onScanLabel,
+                            modifier = Modifier.weight(1f).height(52.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyFinishContent(
+    state: FbsAssemblyUiState,
+    onRestart: () -> Unit,
+    onReload: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val finishedInTime = fbsAssemblyFinishedInTime(state.finishedAtMillis, state.settings.deadlineTime)
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 18.dp)
+    ) {
+        item {
+            ModernCard(Modifier.fillMaxWidth()) {
+                Column(
+                    Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    AppIconBubble(
+                        icon = Icons.Outlined.CheckCircle,
+                        tint = SuccessColor,
+                        background = Color(0xFFE9F8EF),
+                        modifier = Modifier.size(64.dp)
+                    )
+                    Text("Сборка завершена", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, textAlign = TextAlign.Center)
+                    StatusBadge(
+                        text = if (finishedInTime) "Завершено вовремя" else "Завершено с опозданием",
+                        tone = if (finishedInTime) BadgeTone.Green else BadgeTone.Purple
+                    )
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color(0xFFF7F9FF))
+                            .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FbsAssemblyInfoLine("Всего заказов", state.totalOrders.toString())
+                        FbsAssemblyInfoLine("Собрано", state.collectedOrders.toString())
+                        FbsAssemblyInfoLine("Канистр", state.canisterCount.toString())
+                        FbsAssemblyInfoLine("Время начала", formatFbsAssemblyTime(state.startedAtMillis))
+                        FbsAssemblyInfoLine("Время окончания", formatFbsAssemblyTime(state.finishedAtMillis))
+                        FbsAssemblyInfoLine("Общее время сборки", formatFbsAssemblyDuration(state.startedAtMillis, state.finishedAtMillis))
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AppSecondaryButton("Начать заново", icon = Icons.Outlined.Edit, onClick = onRestart, modifier = Modifier.weight(1f))
+                        AppPrimaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, onClick = onReload, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyForecastCard(state: FbsAssemblyUiState, modifier: Modifier = Modifier) {
+    val now by produceState(initialValue = LocalDateTime.now()) {
+        while (true) {
+            value = LocalDateTime.now()
+            delay(30_000)
+        }
+    }
+    val stats = calculateFbsAssemblyHistoryStats(state.history, state.settings)
+    val averageSeconds = fbsAssemblyEffectivePaceSeconds(state, stats)
+    val ordersToAssemble = if (state.isStarted) state.remainingOrders else state.totalOrders
+    val forecast = calculateFbsAssemblyForecast(
+        ordersToAssemble = ordersToAssemble,
+        averageSecondsPerOrder = averageSeconds,
+        settings = state.settings,
+        now = now
+    )
+
+    ModernCard(modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppIconBubble(
+                    icon = if (forecast.risk == FbsAssemblyRisk.ENOUGH) Icons.Outlined.AccessTime else Icons.Outlined.WarningAmber,
+                    tint = fbsAssemblyForecastColor(forecast.risk),
+                    background = fbsAssemblyForecastColor(forecast.risk).copy(alpha = 0.10f),
+                    modifier = Modifier.size(46.dp)
+                )
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        if (state.isStarted) "Прогноз завершения" else "Прогноз сборки",
+                        color = MainTextColor,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                    Text(
+                        if (stats.usesDefaultAverage) {
+                            "Истории мало: ${stats.collectedCount}/${state.settings.minOrdersForAnalytics}, берём базовое время"
+                        } else {
+                            "Среднее время рассчитано по истории сборки"
+                        },
+                        color = MutedTextColor,
+                        fontSize = 13.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                StatusBadge(state.settings.deadlineTime, tone = if (forecast.risk == FbsAssemblyRisk.ENOUGH) BadgeTone.Green else BadgeTone.Purple)
+            }
+
+            FbsAssemblyMetricGrid(
+                firstTitle = if (state.isStarted) "Осталось" else "К сборке",
+                firstValue = forecast.ordersToAssemble.toString(),
+                secondTitle = "На заказ",
+                secondValue = formatFbsAssemblyShortDuration(averageSeconds),
+                thirdTitle = "Запас",
+                thirdValue = formatFbsAssemblyShortDuration(forecast.reserveSeconds)
+            )
+
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Color(0xFFF7F9FF))
+                    .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FbsAssemblyInfoLine("Примерно без запаса", formatFbsAssemblyShortDuration(forecast.forecastSeconds))
+                FbsAssemblyInfoLine("С учётом запаса", formatFbsAssemblyShortDuration(forecast.totalSeconds))
+                if (state.isStarted) {
+                    FbsAssemblyInfoLine("Прогноз завершения", formatFbsAssemblyLocalTime(forecast.projectedFinish))
+                } else {
+                    FbsAssemblyInfoLine("Начать не позже", formatFbsAssemblyLocalTime(forecast.recommendedStart))
+                }
+            }
+
+            FbsAssemblyForecastNotice(forecast = forecast, isStarted = state.isStarted)
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyForecastNotice(forecast: FbsAssemblyForecast, isStarted: Boolean) {
+    val color = fbsAssemblyForecastColor(forecast.risk)
+    val text = when (forecast.risk) {
+        FbsAssemblyRisk.ENOUGH -> if (forecast.ordersToAssemble == 0) {
+            "Текущие заказы уже собраны."
+        } else if (isStarted) {
+            "Времени достаточно. Прогноз завершения: ${formatFbsAssemblyLocalTime(forecast.projectedFinish)}."
+        } else {
+            "Времени достаточно. Рекомендуем начать не позже ${formatFbsAssemblyLocalTime(forecast.recommendedStart)}."
+        }
+        FbsAssemblyRisk.START_SOON ->
+            "Рекомендуем начать сборку сейчас, чтобы успеть закончить до ${formatFbsAssemblyLocalTime(forecast.deadline)}."
+        FbsAssemblyRisk.LATE ->
+            "Есть риск не успеть к ${formatFbsAssemblyLocalTime(forecast.deadline)}. Рекомендуем начать немедленно."
+        FbsAssemblyRisk.NOT_ENOUGH_TIME ->
+            "По текущему прогнозу можно не успеть к ${formatFbsAssemblyLocalTime(forecast.deadline)}. " +
+                "Осталось ${formatFbsAssemblyShortDuration(forecast.secondsUntilDeadline.coerceAtLeast(0L))}, " +
+                "нужно ${formatFbsAssemblyShortDuration(forecast.totalSeconds)}, " +
+                "не хватает ${formatFbsAssemblyShortDuration(forecast.missingSeconds)}."
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(color.copy(alpha = 0.10f))
+            .border(1.dp, color.copy(alpha = 0.26f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Text(text, color = color, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
+@Composable
+private fun FbsAssemblyAnalyticsContent(state: FbsAssemblyUiState, modifier: Modifier = Modifier) {
+    val now by produceState(initialValue = LocalDateTime.now()) {
+        while (true) {
+            value = LocalDateTime.now()
+            delay(30_000)
+        }
+    }
+    val stats = calculateFbsAssemblyHistoryStats(state.history, state.settings)
+    val averageSeconds = fbsAssemblyEffectivePaceSeconds(state, stats)
+    val forecast = calculateFbsAssemblyForecast(
+        ordersToAssemble = if (state.isStarted) state.remainingOrders else state.totalOrders,
+        averageSecondsPerOrder = averageSeconds,
+        settings = state.settings,
+        now = now
+    )
+
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 18.dp)
+    ) {
+        item {
+            ModernCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AppIconBubble(Icons.Outlined.Analytics, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(48.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Аналитика сборки", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                            Text("Только заказы со статусом «Собран» влияют на среднее время", color = MutedTextColor, fontSize = 13.sp)
+                        }
+                    }
+                    FbsAssemblyInfoLine("Сегодня собрано", "${stats.collectedToday} заказов")
+                    FbsAssemblyInfoLine("Среднее время на заказ", formatFbsAssemblyShortDuration(stats.averageSecondsPerOrder))
+                    FbsAssemblyInfoLine("Общее время сегодня", formatFbsAssemblyShortDuration(stats.totalSecondsToday))
+                    FbsAssemblyInfoLine("Самый быстрый заказ", formatFbsAssemblyShortDuration(stats.fastestSeconds))
+                    FbsAssemblyInfoLine("Самый долгий заказ", formatFbsAssemblyShortDuration(stats.slowestSeconds))
+                    FbsAssemblyInfoLine("Проблемных/пропущенных", stats.problemOrders.toString())
+                    FbsAssemblyInfoLine("Осталось собрать", "${forecast.ordersToAssemble} заказов")
+                    FbsAssemblyInfoLine("Примерное время", formatFbsAssemblyShortDuration(forecast.totalSeconds))
+                    FbsAssemblyInfoLine("Начать не позже", formatFbsAssemblyLocalTime(forecast.recommendedStart))
+                }
+            }
+        }
+        item {
+            FbsAssemblyForecastCard(state)
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyHistoryContent(state: FbsAssemblyUiState, modifier: Modifier = Modifier) {
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+        contentPadding = PaddingValues(bottom = 18.dp)
+    ) {
+        if (state.history.isEmpty()) {
+            item {
+                FbsAssemblyEmptyCard(
+                    title = "История пока пустая",
+                    text = "Начните сборку и нажмите «Заказ собран» — приложение сохранит время каждого заказа локально."
+                )
+            }
+        } else {
+            items(state.history, key = { "${it.id}-${it.createdAt}-${it.orderNumber}" }) { entry ->
+                FbsAssemblyHistoryCard(entry)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyHistoryCard(entry: FbsAssemblyHistoryEntry) {
+    ModernCard(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            FbsAssemblyProductPhoto(
+                imageUrl = entry.productImageUrl,
+                status = entry.status,
+                modifier = Modifier.size(width = 58.dp, height = 74.dp)
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Заказ №${entry.orderNumber}", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(entry.productName, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    }
+                    FbsAssemblyStatusBadge(entry.status)
+                }
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFFF8FAFF))
+                        .border(1.dp, CardBorderColor.copy(alpha = 0.68f), RoundedCornerShape(14.dp))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FbsAssemblyInfoLine("Количество", "${entry.quantity} шт.")
+                    FbsAssemblyInfoLine("Дата", formatFbsAssemblyDate(entry.createdAt))
+                    FbsAssemblyInfoLine("Начало", formatFbsAssemblyTime(entry.startedAt))
+                    FbsAssemblyInfoLine("Завершение", formatFbsAssemblyTime(entry.finishedAt))
+                    FbsAssemblyInfoLine("Время сборки", formatFbsAssemblyShortDuration(entry.durationSeconds))
+                    entry.problemReason?.takeIf { it.isNotBlank() }?.let { reason ->
+                        FbsAssemblyInfoLine("Причина", reason)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblySettingsContent(
+    settings: AssemblyForecastSettings,
+    onSave: (AssemblyForecastSettings) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var deadline by rememberSaveable { mutableStateOf(settings.deadlineTime) }
+    var reservePercent by rememberSaveable { mutableStateOf(settings.reservePercent.toString()) }
+    var defaultMinutes by rememberSaveable { mutableStateOf((settings.defaultSecondsPerOrder / 60).coerceAtLeast(1).toString()) }
+    var minOrders by rememberSaveable { mutableStateOf(settings.minOrdersForAnalytics.toString()) }
+
+    LaunchedEffect(settings) {
+        deadline = settings.deadlineTime
+        reservePercent = settings.reservePercent.toString()
+        defaultMinutes = (settings.defaultSecondsPerOrder / 60).coerceAtLeast(1).toString()
+        minOrders = settings.minOrdersForAnalytics.toString()
+    }
+
+    LazyColumn(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(bottom = 18.dp)
+    ) {
+        item {
+            ModernCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AppIconBubble(Icons.Outlined.Settings, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(48.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Настройки прогноза", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                            Text("Значения применяются к блоку прогноза и аналитике", color = MutedTextColor, fontSize = 13.sp)
+                        }
+                    }
+                    ModernTextField(
+                        value = deadline,
+                        onValueChange = { deadline = it.take(5) },
+                        label = "Время окончания сборки",
+                        placeholder = "16:00",
+                        leadingIcon = Icons.Outlined.AccessTime,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    ModernTextField(
+                        value = reservePercent,
+                        onValueChange = { reservePercent = it.filter(Char::isDigit).take(3) },
+                        label = "Запас времени, %",
+                        placeholder = "20",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    ModernTextField(
+                        value = defaultMinutes,
+                        onValueChange = { defaultMinutes = it.filter(Char::isDigit).take(4) },
+                        label = "Базовое время на заказ, мин",
+                        placeholder = "3",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    ModernTextField(
+                        value = minOrders,
+                        onValueChange = { minOrders = it.filter(Char::isDigit).take(4) },
+                        label = "Минимум заказов для аналитики",
+                        placeholder = "10",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    AppPrimaryButton(
+                        text = "Сохранить настройки",
+                        icon = Icons.Outlined.CheckCircle,
+                        onClick = {
+                            onSave(
+                                AssemblyForecastSettings(
+                                    deadlineTime = deadline,
+                                    reservePercent = reservePercent.toIntOrNull() ?: 20,
+                                    defaultSecondsPerOrder = (defaultMinutes.toIntOrNull() ?: 3) * 60,
+                                    minOrdersForAnalytics = minOrders.toIntOrNull() ?: 10
+                                )
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblySummaryCard(state: FbsAssemblyUiState) {
+    ModernCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppIconBubble(Icons.Outlined.Inventory2, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(46.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Заказы к сборке", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(
+                        if (state.orders.isEmpty()) "Нет заказов для сборки" else "${state.totalOrders} заказов · ${state.totalItems} шт. · ${state.canisterCount} канистр",
+                        color = MutedTextColor,
+                        fontSize = 13.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                StatusBadge("${state.totalOrders}", tone = if (state.orders.isEmpty()) BadgeTone.Gray else BadgeTone.Blue)
+            }
+            FbsAssemblyMetricGrid(
+                firstTitle = "Заказов",
+                firstValue = state.totalOrders.toString(),
+                secondTitle = "Товаров",
+                secondValue = state.totalItems.toString(),
+                thirdTitle = "Канистр",
+                thirdValue = state.canisterCount.toString()
+            )
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyProgressPanel(state: FbsAssemblyUiState, now: LocalDateTime) {
+    val progressPercent = (state.progress * 100f).toInt()
+    val timer = fbsAssemblyTimer(now, state.settings.deadlineTime)
+    ModernCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Собрано ${state.collectedOrders} из ${state.totalOrders}", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(timer.text, color = if (timer.isLate) DangerColor else SuccessColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+                StatusBadge("$progressPercent%", tone = if (state.remainingOrders == 0) BadgeTone.Green else BadgeTone.Blue)
+            }
+            PreAssemblyProgressBar(progress = state.progress, color = if (state.remainingOrders == 0) SuccessColor else AccentColor)
+            FbsAssemblyMetricGrid(
+                firstTitle = "Собрано",
+                firstValue = state.collectedOrders.toString(),
+                secondTitle = "Осталось",
+                secondValue = state.remainingOrders.toString(),
+                thirdTitle = "Канистр",
+                thirdValue = state.canisterCount.toString()
+            )
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyMetricGrid(
+    firstTitle: String,
+    firstValue: String,
+    secondTitle: String,
+    secondValue: String,
+    thirdTitle: String,
+    thirdValue: String
+) {
+    val metrics = listOf(
+        Triple(firstTitle, firstValue, AccentColor),
+        Triple(secondTitle, secondValue, SuccessColor),
+        Triple(thirdTitle, thirdValue, WarningColor)
+    )
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        metrics.forEach { (title, value, color) ->
+            FbsAssemblyMetricCell(title, value, color, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyMetricCell(title: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(color.copy(alpha = 0.09f))
+            .border(1.dp, color.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        Text(title, color = MutedTextColor, fontSize = 10.sp, lineHeight = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, lineHeight = 19.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun FbsAssemblyOrderCard(order: FbsAssemblyOrder, large: Boolean) {
+    ModernCard(
+        Modifier
+            .fillMaxWidth()
+            .border(1.dp, fbsAssemblyStatusColor(order.status).copy(alpha = 0.22f), RoundedCornerShape(24.dp))
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(if (large) 14.dp else 10.dp)) {
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FbsAssemblyOrderNumber(order.orderNumber, large = large)
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FbsAssemblyStatusBadge(order.status)
+                        PreAssemblyMetaChip("${order.totalQuantity} шт.", background = SoftBlueColor, contentColor = AccentColor)
+                        if (order.canisterCount > 0) {
+                            PreAssemblyMetaChip("${order.canisterCount} канистр", background = Color(0xFFFFF4E5), contentColor = WarningColor)
+                        }
+                    }
+                }
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(if (large) 10.dp else 7.dp)) {
+                order.items.forEach { item ->
+                    FbsAssemblyItemRow(item = item, status = order.status, large = large)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyOrderNumber(orderNumber: String, large: Boolean) {
+    val parts = fbsAssemblyOrderNumberParts(orderNumber)
+    Column(verticalArrangement = Arrangement.spacedBy(if (large) 6.dp else 3.dp)) {
+        Text("Заказ", color = MutedTextColor, fontWeight = FontWeight.SemiBold, fontSize = if (large) 14.sp else 12.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                parts.prefix,
+                color = MainTextColor,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = if (large) 29.sp else 20.sp,
+                lineHeight = if (large) 32.sp else 23.sp,
+                maxLines = 1
+            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(if (large) 12.dp else 9.dp))
+                    .background(MainTextColor)
+                    .padding(horizontal = if (large) 10.dp else 7.dp, vertical = if (large) 5.dp else 3.dp)
+            ) {
+                Text(
+                    parts.highlight,
+                    color = Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = if (large) 32.sp else 22.sp,
+                    lineHeight = if (large) 34.sp else 24.sp,
+                    maxLines = 1
+                )
+            }
+        }
+        if (parts.suffix.isNotBlank()) {
+            Text(parts.suffix, color = MutedTextColor, fontWeight = FontWeight.Bold, fontSize = if (large) 20.sp else 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyItemRow(item: FbsAssemblyItem, status: FbsAssemblyOrderStatus, large: Boolean) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0xFFF8FAFF))
+            .border(1.dp, CardBorderColor.copy(alpha = 0.7f), RoundedCornerShape(18.dp))
+            .padding(if (large) 10.dp else 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (large) 10.dp else 8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        FbsAssemblyProductPhoto(
+            imageUrl = item.imageUrl,
+            status = status,
+            modifier = Modifier.size(width = if (large) 82.dp else 58.dp, height = if (large) 104.dp else 74.dp)
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(
+                item.name,
+                color = MainTextColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = if (large) 16.sp else 13.sp,
+                lineHeight = if (large) 20.sp else 16.sp,
+                maxLines = if (large) 6 else Int.MAX_VALUE,
+                overflow = if (large) TextOverflow.Ellipsis else TextOverflow.Clip
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                FbsAssemblyQuantityBadge(item.calculatedQuantity, large = large)
+                if (item.apiQuantity != item.calculatedQuantity) {
+                    PreAssemblyMetaChip("API ${item.apiQuantity}", background = Color(0xFFF4F6FB), contentColor = MutedTextColor)
+                }
+                if (item.isCanister) {
+                    PreAssemblyMetaChip("канистра", background = Color(0xFFFFF4E5), contentColor = WarningColor)
+                }
+            }
+            if (!item.article.isNullOrBlank()) {
+                Text("Арт. ${item.article}", color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyQuantityBadge(quantity: Int, large: Boolean) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(Color(0xFFE9F8EF))
+            .padding(horizontal = if (large) 11.dp else 9.dp, vertical = if (large) 5.dp else 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text(
+            quantity.toString(),
+            color = SuccessColor,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (large) 21.sp else 16.sp,
+            maxLines = 1
+        )
+        Text("шт.", color = SuccessColor, fontWeight = FontWeight.Bold, fontSize = if (large) 12.sp else 10.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun FbsAssemblyProductPhoto(
+    imageUrl: String?,
+    status: FbsAssemblyOrderStatus,
+    modifier: Modifier = Modifier
+) {
+    val imageBitmap by produceState<ImageBitmap?>(initialValue = null, imageUrl) {
+        value = imageUrl?.let { url ->
+            preAssemblyProductImageCache[url] ?: loadPreAssemblyProductImage(url)?.also { bitmap ->
+                preAssemblyProductImageCache[url] = bitmap
+            }
+        }
+    }
+    val shape = RoundedCornerShape(15.dp)
+
+    Box(
+        modifier
+            .clip(shape)
+            .background(fbsAssemblyStatusBackground(status))
+            .border(1.dp, fbsAssemblyStatusColor(status).copy(alpha = 0.22f), shape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (imageBitmap != null) {
+            Image(
+                bitmap = imageBitmap!!,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Icon(
+                Icons.Outlined.Inventory2,
+                contentDescription = null,
+                tint = fbsAssemblyStatusColor(status),
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyStatusBadge(status: FbsAssemblyOrderStatus) {
+    Box(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(fbsAssemblyStatusBackground(status))
+            .border(1.dp, fbsAssemblyStatusColor(status).copy(alpha = 0.28f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 5.dp)
+    ) {
+        Text(status.title, color = fbsAssemblyStatusColor(status), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+    }
+}
+
+@Composable
+private fun FbsAssemblyLoadingCard() {
+    ModernCard(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            CircularProgressIndicator(color = AccentColor, strokeWidth = 3.dp, modifier = Modifier.size(30.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Загружаем заказы Ozon...", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("После загрузки можно открыть список или начать сборку", color = MutedTextColor, fontSize = 13.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyEmptyCard(
+    title: String = "Нет заказов для сборки",
+    text: String = "В актуальном списке Ozon нет FBS-заказов в статусе ожидания упаковки."
+) {
+    ModernCard(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            AppIconBubble(Icons.Outlined.Inventory2, tint = MutedTextColor, background = Color(0xFFF2F4F7), modifier = Modifier.size(58.dp))
+            Text(title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 20.sp, textAlign = TextAlign.Center)
+            Text(text, color = MutedTextColor, textAlign = TextAlign.Center, lineHeight = 20.sp)
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyErrorCard(message: String, onRetry: () -> Unit) {
+    ModernCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFFE8E8)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.Close, contentDescription = null, tint = DangerColor)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text("Не удалось загрузить заказы", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text(message, color = MutedTextColor, fontSize = 13.sp)
+                }
+            }
+            AppPrimaryButton("Повторить загрузку", icon = Icons.Outlined.FileDownload, onClick = onRetry, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyRefreshConfirmDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        ModernCard(
+            Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Сборка уже началась", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                Text(
+                    "При обновлении список заказов может измениться, а текущий прогресс будет сброшен.",
+                    color = MutedTextColor,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    AppSecondaryButton("Отмена", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
+                    AppPrimaryButton("Обновить", icon = Icons.Outlined.FileDownload, onClick = onConfirm, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyInfoLine(title: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = MutedTextColor, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+private data class FbsOrderNumberParts(val prefix: String, val highlight: String, val suffix: String)
+
+private data class FbsAssemblyTimerInfo(val text: String, val isLate: Boolean)
+
+private fun fbsAssemblyOrderNumberParts(orderNumber: String): FbsOrderNumberParts {
+    val firstBlock = orderNumber.substringBefore("-")
+    val suffix = orderNumber.removePrefix(firstBlock)
+    if (firstBlock.length < 4) {
+        return FbsOrderNumberParts(prefix = "", highlight = firstBlock.ifBlank { orderNumber }, suffix = suffix)
+    }
+    return FbsOrderNumberParts(
+        prefix = firstBlock.dropLast(4),
+        highlight = firstBlock.takeLast(4),
+        suffix = suffix
+    )
+}
+
+private fun fbsAssemblyTimer(now: LocalDateTime, deadlineTime: String): FbsAssemblyTimerInfo {
+    val parsedDeadlineTime = fbsAssemblyDeadlineTime(deadlineTime)
+    val deadline = now.toLocalDate().atTime(parsedDeadlineTime)
+    val deadlineText = "%02d:%02d".format(parsedDeadlineTime.hour, parsedDeadlineTime.minute)
+    val isLate = now.isAfter(deadline)
+    val duration = if (isLate) Duration.between(deadline, now) else Duration.between(now, deadline)
+    return FbsAssemblyTimerInfo(
+        text = if (isLate) "Просрочка: ${formatFbsAssemblyDuration(duration)}" else "До $deadlineText: ${formatFbsAssemblyDuration(duration)}",
+        isLate = isLate
+    )
+}
+
+private fun formatFbsAssemblyTime(millis: Long?): String =
+    millis?.let {
+        Instant.ofEpochMilli(it)
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("HH:mm"))
+    } ?: "—"
+
+private fun formatFbsAssemblyDuration(startMillis: Long?, endMillis: Long?): String {
+    if (startMillis == null || endMillis == null) return "—"
+    return formatFbsAssemblyDuration(Duration.ofMillis((endMillis - startMillis).coerceAtLeast(0L)))
+}
+
+private fun formatFbsAssemblyDuration(duration: Duration): String {
+    val seconds = duration.seconds.coerceAtLeast(0)
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    val secs = seconds % 60
+    return "%02d:%02d:%02d".format(hours, minutes, secs)
+}
+
+private fun formatFbsAssemblyShortDuration(seconds: Long?): String {
+    val safeSeconds = seconds?.coerceAtLeast(0L) ?: return "—"
+    val hours = safeSeconds / 3600
+    val minutes = (safeSeconds % 3600) / 60
+    val secs = safeSeconds % 60
+    return when {
+        hours > 0 -> "${hours} ч ${minutes} мин"
+        minutes > 0 -> "${minutes} мин ${secs} сек"
+        else -> "${secs} сек"
+    }
+}
+
+private fun formatFbsAssemblyDate(millis: Long): String =
+    Instant.ofEpochMilli(millis)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("dd.MM.yyyy"))
+
+private fun formatFbsAssemblyLocalTime(dateTime: LocalDateTime): String =
+    dateTime.format(DateTimeFormatter.ofPattern("HH:mm"))
+
+private fun fbsAssemblyEffectivePaceSeconds(
+    state: FbsAssemblyUiState,
+    stats: FbsAssemblyHistoryStats
+): Long {
+    val startedAt = state.startedAtMillis ?: return stats.averageSecondsPerOrder
+    val sessionEntries = state.history.filter { entry ->
+        entry.status.countsInAverage && entry.createdAt >= startedAt && entry.durationSeconds > 0
+    }
+    if (sessionEntries.isEmpty()) return stats.averageSecondsPerOrder
+    return (sessionEntries.sumOf { it.durationSeconds } / sessionEntries.size).coerceAtLeast(1L)
+}
+
+private fun fbsAssemblyForecastColor(risk: FbsAssemblyRisk): Color = when (risk) {
+    FbsAssemblyRisk.ENOUGH -> SuccessColor
+    FbsAssemblyRisk.START_SOON -> WarningColor
+    FbsAssemblyRisk.LATE -> WarningColor
+    FbsAssemblyRisk.NOT_ENOUGH_TIME -> DangerColor
+}
+
+private fun fbsAssemblyDeadlineTime(value: String): LocalTime {
+    val match = Regex("""^\s*(\d{1,2}):(\d{2})\s*$""").matchEntire(value)
+    val hour = match?.groupValues?.getOrNull(1)?.toIntOrNull()
+    val minute = match?.groupValues?.getOrNull(2)?.toIntOrNull()
+    return if (hour != null && minute != null && hour in 0..23 && minute in 0..59) {
+        LocalTime.of(hour, minute)
+    } else {
+        LocalTime.of(16, 0)
+    }
+}
+
+private fun fbsAssemblyFinishedInTime(finishedAtMillis: Long?, deadlineTime: String): Boolean {
+    val finishedTime = finishedAtMillis?.let {
+        Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalTime()
+    } ?: return true
+    return !finishedTime.isAfter(fbsAssemblyDeadlineTime(deadlineTime))
+}
+
+private fun fbsAssemblyStatusColor(status: FbsAssemblyOrderStatus): Color = when (status) {
+    FbsAssemblyOrderStatus.WAITING -> MutedTextColor
+    FbsAssemblyOrderStatus.CURRENT -> AccentColor
+    FbsAssemblyOrderStatus.COLLECTED -> SuccessColor
+    FbsAssemblyOrderStatus.SKIPPED -> WarningColor
+    FbsAssemblyOrderStatus.PROBLEM,
+    FbsAssemblyOrderStatus.NOT_FOUND,
+    FbsAssemblyOrderStatus.SHORTAGE,
+    FbsAssemblyOrderStatus.CANCELLED -> DangerColor
+}
+
+private fun fbsAssemblyStatusBackground(status: FbsAssemblyOrderStatus): Color = when (status) {
+    FbsAssemblyOrderStatus.WAITING -> Color(0xFFF2F4F7)
+    FbsAssemblyOrderStatus.CURRENT -> SoftBlueColor
+    FbsAssemblyOrderStatus.COLLECTED -> Color(0xFFE9F8EF)
+    FbsAssemblyOrderStatus.SKIPPED -> Color(0xFFFFF4E5)
+    FbsAssemblyOrderStatus.PROBLEM,
+    FbsAssemblyOrderStatus.NOT_FOUND,
+    FbsAssemblyOrderStatus.SHORTAGE,
+    FbsAssemblyOrderStatus.CANCELLED -> Color(0xFFFFE8E8)
 }
 
 @Composable

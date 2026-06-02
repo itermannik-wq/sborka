@@ -46,7 +46,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 @androidx.annotation.OptIn(ExperimentalGetImage::class)
 @OptIn(ExperimentalGetImage::class)
 @Composable
-fun BarcodeScannerScreen(onCodeScanned: (String) -> Unit, onClose: () -> Unit) {
+fun BarcodeScannerScreen(
+    onCodeScanned: (String) -> Unit,
+    onClose: () -> Unit,
+    title: String = "Наведите камеру на EAN-13, QR, DataMatrix или внутренний код"
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var hasPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
@@ -76,7 +80,7 @@ fun BarcodeScannerScreen(onCodeScanned: (String) -> Unit, onClose: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Наведите камеру на EAN-13, QR, DataMatrix или внутренний код", Modifier.padding(8.dp))
+        Text(title, Modifier.padding(8.dp))
         AndroidView(
             modifier = Modifier.fillMaxWidth().weight(1f),
             factory = { ctx ->
@@ -86,16 +90,7 @@ fun BarcodeScannerScreen(onCodeScanned: (String) -> Unit, onClose: () -> Unit) {
                     val provider = cameraProviderFuture.get()
                     val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
                     val options = BarcodeScannerOptions.Builder()
-                        .setBarcodeFormats(
-                            Barcode.FORMAT_EAN_13,
-                            Barcode.FORMAT_QR_CODE,
-                            Barcode.FORMAT_DATA_MATRIX,
-                            Barcode.FORMAT_CODE_128,
-                            Barcode.FORMAT_CODE_39,
-                            Barcode.FORMAT_CODE_93,
-                            Barcode.FORMAT_CODABAR,
-                            Barcode.FORMAT_ITF
-                        )
+                        .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
                         .build()
                     val scanner = BarcodeScanning.getClient(options)
                     val analysis = ImageAnalysis.Builder()

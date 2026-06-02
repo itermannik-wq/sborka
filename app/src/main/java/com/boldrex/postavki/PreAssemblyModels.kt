@@ -23,7 +23,8 @@ data class OzonOrderItem(
     val sku: String?,
     val name: String,
     val quantity: Int,
-    val imageUrl: String? = null
+    val imageUrl: String? = null,
+    val labelCodes: Set<String> = emptySet()
 )
 
 data class PreAssemblyItem(

@@ -93,7 +93,7 @@ class OzonApiOrderRepository(
                 "with",
                 JSONObject()
                     .put("analytics_data", false)
-                    .put("barcodes", false)
+                    .put("barcodes", true)
                     .put("financial_data", false)
                     .put("translit", false)
             )
@@ -142,6 +142,7 @@ class OzonApiOrderRepository(
                 ?: posting.optCleanString("order_number")
                 ?: posting.optCleanString("order_id")
                 ?: "posting-${postingIndex + 1}"
+            val labelCodes = posting.postingLabelCodes(orderId)
             val products = posting.optJSONArray("products") ?: JSONArray()
 
             for (productIndex in 0 until products.length()) {
@@ -160,7 +161,8 @@ class OzonApiOrderRepository(
                     offerId = offerId,
                     sku = sku,
                     name = name,
-                    quantity = quantity
+                    quantity = quantity,
+                    labelCodes = labelCodes
                 )
             }
         }
@@ -239,6 +241,57 @@ class OzonApiOrderRepository(
             ?: optCleanString("details")
         val code = optCleanString("code")
         return listOfNotNull(code, message).joinToString(": ").takeIf { it.isNotBlank() }
+    }
+
+    private fun JSONObject.postingLabelCodes(orderId: String): Set<String> {
+        val codes = linkedSetOf(orderId)
+        listOf(
+            "posting_number",
+            "order_number",
+            "order_id",
+            "barcode",
+            "bar_code",
+            "tracking_number",
+            "track_number"
+        ).forEach { field -> optCleanString(field)?.let(codes::add) }
+
+        optJSONObject("barcodes")?.collectStringLeaves(codes)
+        optJSONArray("barcodes")?.collectStringLeaves(codes)
+        optJSONObject("posting_barcode")?.collectStringLeaves(codes)
+        optJSONObject("package_barcode")?.collectStringLeaves(codes)
+
+        return codes
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
+
+    private fun JSONObject.collectStringLeaves(target: MutableSet<String>) {
+        keys().forEach { key ->
+            when (val value = opt(key)) {
+                is JSONObject -> value.collectStringLeaves(target)
+                is JSONArray -> value.collectStringLeaves(target)
+                else -> value
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                    ?.let(target::add)
+            }
+        }
+    }
+
+    private fun JSONArray.collectStringLeaves(target: MutableSet<String>) {
+        for (index in 0 until length()) {
+            when (val value = opt(index)) {
+                is JSONObject -> value.collectStringLeaves(target)
+                is JSONArray -> value.collectStringLeaves(target)
+                else -> value
+                    ?.toString()
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                    ?.let(target::add)
+            }
+        }
     }
 
     private fun JSONObject.optCleanString(name: String): String? {

@@ -6,7 +6,6 @@ import android.content.ContextWrapper
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.widget.Toast
 import jcifs.config.PropertyConfiguration
 import jcifs.context.BaseContext
 import jcifs.smb.NtlmPasswordAuthenticator
@@ -130,6 +129,29 @@ object PreAssemblyPrinter {
         Thread {
             PreAssemblyPrintLog.append(appContext, "Print job started in background '$jobName'")
             val directPrint = runCatching {
+                val usbPrint = UsbDirectPrinter.printTextIfAvailable(
+                    context = appContext,
+                    jobName = jobName,
+                    text = rawText
+                )
+                if (usbPrint != null) {
+                    usbPrint
+                        .onSuccess { usbResult ->
+                            PreAssemblyPrintLog.append(
+                                appContext,
+                                "Print job finished via USB OTG '$jobName': printer='${usbResult.printerName}', bytes=${usbResult.bytesWritten}"
+                            )
+                            return@runCatching "Лист отправлен на USB-принтер ${usbResult.printerName}"
+                        }
+                        .onFailure { usbError ->
+                            PreAssemblyPrintLog.append(
+                                appContext,
+                                "USB OTG print failed for '$jobName', falling back to print bridge",
+                                usbError
+                            )
+                        }
+                }
+
                 try {
                     printViaBridge(context = appContext, jobName = jobName, printerName = printerName, text = rawText)
                 } catch (bridgeError: Throwable) {
@@ -140,21 +162,24 @@ object PreAssemblyPrinter {
                     )
                     printViaSmbShare(context = appContext, jobName = jobName, text = rawText)
                 }
+                successMessage
             }
             mainHandler.post {
                 directPrint
-                    .onSuccess {
+                    .onSuccess { message ->
                         PreAssemblyPrintLog.append(appContext, "Print job finished successfully '$jobName'")
-                        Toast.makeText(activity, successMessage, Toast.LENGTH_SHORT).show()
+                        PrinterUiNotifier.success(
+                            title = "Печать отправлена",
+                            text = message
+                        )
                     }
                     .onFailure { error ->
                         PreAssemblyPrintLog.append(appContext, "Print job failed '$jobName'", error)
                         Log.e(PRE_ASSEMBLY_PRINTER_TAG, "Print failed", error)
-                        Toast.makeText(
-                            activity,
-                            "Не удалось напечатать: ${error.message ?: "проверьте мост или SMB-принтер"}",
-                            Toast.LENGTH_LONG
-                        ).show()
+                        PrinterUiNotifier.error(
+                            title = "Не удалось напечатать",
+                            text = error.message ?: "Проверьте мост или SMB-принтер"
+                        )
                     }
             }
         }.apply {

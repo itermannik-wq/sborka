@@ -13,16 +13,25 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.time.LocalDate
 
 class AppViewModel(application: Application) : AndroidViewModel(application) {
     private val repo: ShipmentRepository by lazy(LazyThreadSafetyMode.NONE) {
         ShipmentRepository(LocalDatabase.get(getApplication()).dao())
     }
-    private val _state = MutableStateFlow(AppUiState())
+    private val updateService: AppUpdateService by lazy(LazyThreadSafetyMode.NONE) {
+        AppUpdateService(getApplication())
+    }
+    private val _state = MutableStateFlow(
+        AppUiState(update = AppUpdateUiState(serverUrl = updateService.savedManifestUrl()))
+    )
     val state: StateFlow<AppUiState> = _state.asStateFlow()
+    private var initialLoadStarted = false
 
-    init {
+    fun ensureLoaded() {
+        if (initialLoadStarted) return
+        initialLoadStarted = true
         runBusy {
             repo.ensureBaseData()
             load()
@@ -145,7 +154,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val boxId = requireNotNull(_state.value.selectedBoxId) { "Коробка не выбрана" }
         repo.addProductToBox(boxId, productId, quantity)
         _state.update { it.copy(productSearch = emptyList(), message = "Товар добавлен") }
-        load()
+        loadCurrentBoxItems()
     }
 
     fun createProductAndAdd(article: String, name: String, barcode: String?, quantity: Int, fromScan: Boolean) = runBusy {
@@ -153,12 +162,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val productId = repo.createOrUpdateProduct(article, name, barcode, fromScan)
         repo.addProductToBox(boxId, productId, quantity)
         _state.update { it.copy(pendingBarcode = null, productSearch = emptyList(), screen = AppScreen.BOX, message = "Новый товар добавлен") }
-        load()
+        loadCurrentBoxItems()
     }
 
     fun changeItemQuantity(itemId: Long, quantity: Int) = runBusy {
         repo.setItemQuantity(itemId, quantity)
-        load()
+        loadCurrentBoxItems()
     }
 
     fun handleScan(code: String) = runBusy {
@@ -168,10 +177,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val added = repo.addScannedCodeToBox(boxId, clean)
         if (added) {
             _state.update { it.copy(screen = AppScreen.BOX, pendingBarcode = null, message = "Скан: товар добавлен +1") }
+            loadCurrentBoxItems()
         } else {
             _state.update { it.copy(screen = AppScreen.BOX, pendingBarcode = clean, message = "Код не найден. Создайте товар") }
         }
-        load()
     }
 
     fun generateExcel(shipmentId: Long? = null, share: Boolean = true) = runBusy {
@@ -183,7 +192,6 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         repo.logReport(id, file.name, file.absolutePath)
         if (share) ExcelService.shareFile(getApplication(), file)
         _state.update { it.copy(lastFile = file, message = "Excel-отчёт сформирован: ${file.name}") }
-        load()
     }
 
     fun exportCsv(shipmentId: Long? = null, share: Boolean = true) = runBusy {
@@ -225,6 +233,190 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearMessage() = _state.update { it.copy(message = null) }
 
+    fun changeUpdateServerUrl(url: String) {
+        _state.update {
+            it.copy(update = it.update.copy(serverUrl = url, message = null, error = null))
+        }
+    }
+
+    fun checkForUpdate() {
+        val manifestUrl = updateService.saveManifestUrl(_state.value.update.serverUrl)
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    update = it.update.copy(
+                        serverUrl = manifestUrl,
+                        status = AppUpdateStatus.CHECKING,
+                        isChecking = true,
+                        isDownloading = false,
+                        downloadProgress = null,
+                        downloadedBytes = 0L,
+                        totalBytes = null,
+                        downloadedApkPath = null,
+                        message = null,
+                        error = null
+                    )
+                )
+            }
+            try {
+                val info = withContext(Dispatchers.IO) {
+                    updateService.checkForUpdate(manifestUrl)
+                }
+                _state.update {
+                    it.copy(
+                        update = it.update.copy(
+                            info = info,
+                            status = if (info.isUpdateAvailable) AppUpdateStatus.AVAILABLE else AppUpdateStatus.UP_TO_DATE,
+                            isChecking = false,
+                            message = if (info.isUpdateAvailable) {
+                                "Доступна версия ${info.versionName} (${info.versionCode})"
+                            } else {
+                                "Установлена актуальная версия"
+                            },
+                            error = null
+                        )
+                    )
+                }
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        update = it.update.copy(
+                            status = AppUpdateStatus.ERROR,
+                            isChecking = false,
+                            message = null,
+                            error = t.message ?: "Не удалось проверить обновление"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun downloadUpdate() {
+        val info = _state.value.update.info
+        if (info == null || !info.isUpdateAvailable) {
+            _state.update {
+                it.copy(update = it.update.copy(message = null, error = "Сначала найдите доступное обновление"))
+            }
+            return
+        }
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    update = it.update.copy(
+                        status = AppUpdateStatus.DOWNLOADING,
+                        isDownloading = true,
+                        downloadProgress = null,
+                        downloadedBytes = 0L,
+                        totalBytes = info.apkSizeBytes,
+                        downloadedApkPath = null,
+                        message = null,
+                        error = null
+                    )
+                )
+            }
+            try {
+                val apk = withContext(Dispatchers.IO) {
+                    updateService.downloadApk(info) { downloadedBytes, totalBytes ->
+                        _state.update {
+                            val progress = totalBytes
+                                ?.takeIf { total -> total > 0L }
+                                ?.let { total -> (downloadedBytes.toFloat() / total.toFloat()).coerceIn(0f, 1f) }
+                            it.copy(
+                                update = it.update.copy(
+                                    downloadProgress = progress,
+                                    downloadedBytes = downloadedBytes,
+                                    totalBytes = totalBytes
+                                )
+                            )
+                        }
+                    }
+                }
+                val needsPermission = !updateService.canRequestPackageInstalls()
+                _state.update {
+                    it.copy(
+                        update = it.update.copy(
+                            status = if (needsPermission) AppUpdateStatus.INSTALL_PERMISSION_REQUIRED else AppUpdateStatus.DOWNLOADED,
+                            isDownloading = false,
+                            downloadProgress = 1f,
+                            downloadedApkPath = apk.absolutePath,
+                            message = if (needsPermission) {
+                                "APK скачан. Разрешите установку из этого приложения"
+                            } else {
+                                "APK скачан, можно устанавливать"
+                            },
+                            error = null
+                        )
+                    )
+                }
+            } catch (t: Throwable) {
+                _state.update {
+                    it.copy(
+                        update = it.update.copy(
+                            status = AppUpdateStatus.ERROR,
+                            isDownloading = false,
+                            message = null,
+                            error = t.message ?: "Не удалось скачать обновление"
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    fun installDownloadedUpdate() {
+        val apkPath = _state.value.update.downloadedApkPath
+        if (apkPath.isNullOrBlank()) {
+            _state.update {
+                it.copy(update = it.update.copy(message = null, error = "Сначала скачайте APK обновления"))
+            }
+            return
+        }
+        runCatching {
+            updateService.installApk(File(apkPath))
+        }.onSuccess {
+            _state.update {
+                it.copy(
+                    update = it.update.copy(
+                        status = AppUpdateStatus.INSTALLING,
+                        message = "Открыт установщик Android",
+                        error = null
+                    )
+                )
+            }
+        }.onFailure { t ->
+            _state.update {
+                it.copy(
+                    update = it.update.copy(
+                        status = AppUpdateStatus.INSTALL_PERMISSION_REQUIRED,
+                        message = null,
+                        error = t.message ?: "Не удалось открыть установщик"
+                    )
+                )
+            }
+        }
+    }
+
+    fun openUpdateInstallPermission() {
+        runCatching {
+            updateService.openInstallPermissionSettings()
+        }.onSuccess {
+            _state.update {
+                it.copy(
+                    update = it.update.copy(
+                        status = AppUpdateStatus.INSTALL_PERMISSION_REQUIRED,
+                        message = "После разрешения вернитесь и нажмите «Установить»",
+                        error = null
+                    )
+                )
+            }
+        }.onFailure { t ->
+            _state.update {
+                it.copy(update = it.update.copy(message = null, error = t.message ?: "Не удалось открыть настройки Android"))
+            }
+        }
+    }
+
     private suspend fun load() {
         val current = _state.value
         val shipments = repo.listShipments()
@@ -245,6 +437,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
                 selectedBoxNumber = selectedBoxNumber
             )
         }
+    }
+
+    private suspend fun loadCurrentBoxItems() {
+        val boxId = _state.value.selectedBoxId ?: return
+        val items = repo.listBoxItems(boxId)
+        _state.update { it.copy(boxItems = items) }
     }
 
     private fun message(text: String) = _state.update { it.copy(message = text) }

@@ -121,6 +121,43 @@ data class ProductImportResult(
     val duplicateBarcodes: Int
 )
 
+enum class AppUpdateStatus {
+    IDLE,
+    CHECKING,
+    AVAILABLE,
+    UP_TO_DATE,
+    DOWNLOADING,
+    DOWNLOADED,
+    INSTALL_PERMISSION_REQUIRED,
+    INSTALLING,
+    ERROR
+}
+
+data class AppUpdateInfo(
+    val manifestUrl: String,
+    val versionCode: Int,
+    val versionName: String,
+    val apkUrl: String,
+    val apkSizeBytes: Long? = null,
+    val sha256: String? = null,
+    val notes: String? = null,
+    val isUpdateAvailable: Boolean = false
+)
+
+data class AppUpdateUiState(
+    val serverUrl: String = "",
+    val info: AppUpdateInfo? = null,
+    val status: AppUpdateStatus = AppUpdateStatus.IDLE,
+    val isChecking: Boolean = false,
+    val isDownloading: Boolean = false,
+    val downloadProgress: Float? = null,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long? = null,
+    val downloadedApkPath: String? = null,
+    val message: String? = null,
+    val error: String? = null
+)
+
 data class AppUiState(
     val screen: AppScreen = AppScreen.SHIPMENTS,
     val shipments: List<ShipmentCardData> = emptyList(),
@@ -139,6 +176,7 @@ data class AppUiState(
     val lastFile: File? = null,
     val importPreview: ProductImportPreview? = null,
     val importResult: ProductImportResult? = null,
+    val update: AppUpdateUiState = AppUpdateUiState(),
     val isBusy: Boolean = false,
     val message: String? = null
 )

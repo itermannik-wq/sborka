@@ -12,12 +12,16 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
+internal const val OZON_POSTING_STATUS_AWAITING_PACKAGING = "awaiting_packaging"
+internal const val OZON_POSTING_STATUS_AWAITING_DELIVER = "awaiting_deliver"
+
 class OzonApiOrderRepository(
     private val baseUrl: String = OzonApiConfig.BASE_URL,
     private val clientId: String = OzonApiConfig.CLIENT_ID,
     private val apiKey: String = OzonApiConfig.API_KEY,
     private val lookbackDays: Long = OzonApiConfig.ORDER_LOOKBACK_DAYS,
-    private val lookaheadDays: Long = OzonApiConfig.ORDER_LOOKAHEAD_DAYS
+    private val lookaheadDays: Long = OzonApiConfig.ORDER_LOOKAHEAD_DAYS,
+    private val postingStatus: String = OZON_POSTING_STATUS_AWAITING_PACKAGING
 ) : OzonOrderRepository {
     override var lastWarning: String? = null
         private set
@@ -75,7 +79,7 @@ class OzonApiOrderRepository(
         orders.map { item -> item.copy(imageUrl = imageByOfferId[item.offerId]) }
     }
 
-    private fun buildRequest(offset: Int): JSONObject {
+    internal fun buildRequest(offset: Int): JSONObject {
         val now = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS)
         val formatter = DateTimeFormatter.ISO_OFFSET_DATE_TIME
         return JSONObject()
@@ -85,7 +89,7 @@ class OzonApiOrderRepository(
                 JSONObject()
                     .put("cutoff_from", now.minusDays(lookbackDays).format(formatter))
                     .put("cutoff_to", now.plusDays(lookaheadDays).format(formatter))
-                    .put("status", "awaiting_packaging")
+                    .put("status", postingStatus)
             )
             .put("limit", PAGE_LIMIT)
             .put("offset", offset)
@@ -174,6 +178,9 @@ class OzonApiOrderRepository(
 
         val images = mutableMapOf<String, String>()
         val distinctItems = orderItems.distinctBy { it.offerId }
+        val offerIdsBySku = distinctItems
+            .mapNotNull { item -> item.sku?.takeIf { it.isNotBlank() }?.let { sku -> sku to item.offerId } }
+            .groupBy(keySelector = { it.first }, valueTransform = { it.second })
 
         distinctItems
             .map { it.offerId }
@@ -186,7 +193,7 @@ class OzonApiOrderRepository(
                     clientId = clientId,
                     apiKey = apiKey
                 )
-                collectProductImages(response.productInfoItems(), distinctItems, images)
+                collectProductImages(response.productInfoItems(), offerIdsBySku, images)
             }
 
         val missingSkuItems = distinctItems
@@ -202,14 +209,14 @@ class OzonApiOrderRepository(
                     clientId = clientId,
                     apiKey = apiKey
                 )
-                collectProductImages(response.productInfoItems(), distinctItems, images)
+                collectProductImages(response.productInfoItems(), offerIdsBySku, images)
             }
         return images
     }
 
     private fun collectProductImages(
         products: JSONArray,
-        orderItems: List<OzonOrderItem>,
+        offerIdsBySku: Map<String, List<String>>,
         images: MutableMap<String, String>
     ) {
         for (index in 0 until products.length()) {
@@ -222,9 +229,9 @@ class OzonApiOrderRepository(
                 images[offerId] = imageUrl
             }
             val productSkus = product.optSkuStrings()
-            if (productSkus.isNotEmpty()) {
-                orderItems.filter { item -> item.sku in productSkus }.forEach { item ->
-                    images[item.offerId] = imageUrl
+            productSkus.forEach { sku ->
+                offerIdsBySku[sku].orEmpty().forEach { offerId ->
+                    images[offerId] = imageUrl
                 }
             }
         }

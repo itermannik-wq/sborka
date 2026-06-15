@@ -4,7 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.BitmapFactory
-import android.widget.Toast
+import android.util.LruCache
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -48,6 +49,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -64,6 +67,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Business
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -77,8 +81,11 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -94,6 +101,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextFieldDefaults
@@ -101,7 +109,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -125,6 +132,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -134,14 +142,25 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URL
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
@@ -150,6 +169,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
@@ -168,13 +188,21 @@ private val SoftBlueColor = Color(0xFFEEF4FF)
 private val SuccessColor = Color(0xFF16A34A)
 private val DangerColor = Color(0xFFEF4444)
 private val WarningColor = Color(0xFFF97316)
+private val FbsNeonGreen = Color(0xFF78F04B)
+private val FbsDarkBackground = Color(0xFF050605)
+private val FbsDarkPanel = Color(0xFF101110)
+private val FbsDarkPanelAlt = Color(0xFF191A18)
+private val FbsDarkBorder = Color(0xFF353735)
+private val FbsDarkText = Color(0xFFF7F7F2)
+private val FbsDarkMutedText = Color(0xFF9B9B9B)
 
 private val CompactScreenBreakpoint = 380.dp
 private val NarrowScreenBreakpoint = 340.dp
 
 private enum class AppMode { MENU, SUPPLY, PRE_ASSEMBLY, FBS_ASSEMBLY }
 
-private enum class FbsAssemblyPage { HOME, LIST, WORK, FINISH, ANALYTICS, HISTORY, SETTINGS }
+private enum class FbsAssemblyPage { HOME, LIST, WORK, FINISH }
+private enum class FbsAssemblyOverlay { ANALYTICS, HISTORY, SETTINGS }
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -316,6 +344,163 @@ private fun ModernCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         content = { content() }
     )
+}
+
+@Composable
+private fun FbsAssemblyDarkCard(
+    modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = RoundedCornerShape(24.dp),
+    content: @Composable () -> Unit
+) {
+    Card(
+        modifier = modifier.shadow(
+            elevation = 18.dp,
+            shape = shape,
+            ambientColor = Color.Black.copy(alpha = 0.50f),
+            spotColor = FbsNeonGreen.copy(alpha = 0.10f)
+        ),
+        shape = shape,
+        colors = CardDefaults.cardColors(containerColor = FbsDarkPanel.copy(alpha = 0.98f)),
+        border = BorderStroke(1.dp, FbsDarkBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        content = { content() }
+    )
+}
+
+@Composable
+private fun PreAssemblyDarkCard(
+    modifier: Modifier = Modifier,
+    shape: RoundedCornerShape = RoundedCornerShape(24.dp),
+    content: @Composable () -> Unit
+) {
+    FbsAssemblyDarkCard(modifier = modifier, shape = shape, content = content)
+}
+
+@Composable
+private fun PreAssemblyDarkPrimaryButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier
+            .defaultMinSize(minHeight = 44.dp)
+            .heightIn(min = 44.dp)
+            .alpha(if (enabled) 1f else 0.48f),
+        shape = RoundedCornerShape(16.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = FbsNeonGreen,
+            contentColor = Color.Black,
+            disabledContainerColor = FbsNeonGreen.copy(alpha = 0.46f),
+            disabledContentColor = Color.Black.copy(alpha = 0.68f)
+        )
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(
+            text,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 13.sp,
+            lineHeight = 16.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun PreAssemblyDarkSecondaryButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    danger: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val contentColor = if (danger) DangerColor else FbsDarkText
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier
+            .defaultMinSize(minHeight = 44.dp)
+            .heightIn(min = 44.dp)
+            .alpha(if (enabled) 1f else 0.48f),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, if (danger) DangerColor.copy(alpha = 0.62f) else FbsDarkBorder),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = FbsDarkPanelAlt,
+            contentColor = contentColor,
+            disabledContainerColor = FbsDarkPanelAlt,
+            disabledContentColor = FbsDarkMutedText
+        )
+    ) {
+        if (icon != null) {
+            Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+        }
+        Text(
+            text,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+            lineHeight = 16.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun PreAssemblyDarkIconActionButton(
+    icon: ImageVector,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    danger: Boolean = false,
+    primary: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val tint = when {
+        danger -> DangerColor
+        primary -> Color.Black
+        else -> FbsNeonGreen
+    }
+    if (primary) {
+        Button(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier
+                .size(44.dp)
+                .alpha(if (enabled) 1f else 0.48f),
+            shape = shape,
+            contentPadding = PaddingValues(0.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = FbsNeonGreen, contentColor = Color.Black)
+        ) {
+            Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(20.dp))
+        }
+    } else {
+        OutlinedIconButton(
+            onClick = onClick,
+            enabled = enabled,
+            modifier = modifier
+                .size(44.dp)
+                .alpha(if (enabled) 1f else 0.48f),
+            shape = shape,
+            border = BorderStroke(1.dp, if (danger) DangerColor.copy(alpha = 0.62f) else FbsDarkBorder)
+        ) {
+            Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(20.dp))
+        }
+    }
 }
 
 @Composable
@@ -693,6 +878,44 @@ private fun ModernTextField(
 }
 
 @Composable
+private fun FbsAssemblyTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    label: String,
+    placeholder: String = label,
+    singleLine: Boolean = true,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    leadingIcon: ImageVector? = null
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        placeholder = { Text(placeholder, color = FbsDarkMutedText.copy(alpha = 0.76f)) },
+        leadingIcon = leadingIcon?.let { icon ->
+            { Icon(icon, contentDescription = null, tint = FbsNeonGreen) }
+        },
+        singleLine = singleLine,
+        keyboardOptions = keyboardOptions,
+        modifier = modifier.heightIn(min = if (singleLine) 58.dp else 86.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = TextFieldDefaults.colors(
+            focusedTextColor = FbsDarkText,
+            unfocusedTextColor = FbsDarkText,
+            focusedLabelColor = FbsNeonGreen,
+            unfocusedLabelColor = FbsDarkMutedText,
+            cursorColor = FbsNeonGreen,
+            focusedContainerColor = FbsDarkPanelAlt,
+            unfocusedContainerColor = FbsDarkPanelAlt,
+            disabledContainerColor = FbsDarkPanelAlt,
+            focusedIndicatorColor = FbsNeonGreen,
+            unfocusedIndicatorColor = FbsDarkBorder
+        )
+    )
+}
+
+@Composable
 private fun SearchField(
     query: String,
     onQueryChange: (String) -> Unit,
@@ -734,41 +957,85 @@ fun AppRoot(vm: AppViewModel) {
     var mode by rememberSaveable { mutableStateOf(AppMode.MENU) }
     val context = LocalContext.current
     val preAssemblyVm = remember(context.applicationContext) {
-        PreAssemblyViewModel(
-            archiveRepository = PreAssemblyArchiveRepository(
-                LocalDatabase.get(context.applicationContext).dao()
+        lazy(LazyThreadSafetyMode.NONE) {
+            PreAssemblyViewModel(
+                archiveRepository = PreAssemblyArchiveRepository(
+                    LocalDatabase.get(context.applicationContext).dao()
+                )
             )
-        )
+        }
     }
     val fbsAssemblyVm = remember(context.applicationContext) {
-        FbsAssemblyViewModel(
-            historyRepository = FbsAssemblyHistoryRepository(
-                LocalDatabase.get(context.applicationContext).dao()
+        lazy(LazyThreadSafetyMode.NONE) {
+            FbsAssemblyViewModel(
+                historyRepository = FbsAssemblyHistoryRepository(
+                    LocalDatabase.get(context.applicationContext).dao()
+                ),
+                labelPrinter = OzonLabelPrinter(context.applicationContext),
+                notificationService = FbsOrderNotificationService(context.applicationContext)
             )
-        )
+        }
     }
-    val state by vm.state.collectAsState()
-    val preAssemblyState by preAssemblyVm.state.collectAsState()
-    val fbsAssemblyState by fbsAssemblyVm.state.collectAsState()
-    val showStartupLoader = mode == AppMode.SUPPLY && state.isBusy && state.shipments.isEmpty() && state.screen == AppScreen.SHIPMENTS
-    Box(Modifier.fillMaxSize().background(AppBackgroundGradient)) {
+    val rootModifier = if (mode == AppMode.FBS_ASSEMBLY || mode == AppMode.PRE_ASSEMBLY) {
+        Modifier.fillMaxSize().background(FbsDarkBackground)
+    } else {
+        Modifier.fillMaxSize().background(AppBackgroundGradient)
+    }
+    var printerMessage by remember { mutableStateOf<PrinterUiMessage?>(null) }
+    LaunchedEffect(Unit) {
+        PrinterUiNotifier.messages.collect { message ->
+            printerMessage = message
+        }
+    }
+    LaunchedEffect(printerMessage?.id) {
+        val message = printerMessage ?: return@LaunchedEffect
+        delay(if (message.isError) 4_600L else 3_200L)
+        if (printerMessage?.id == message.id) printerMessage = null
+    }
+    val safeTopPadding = rememberFullscreenSafeTopPadding()
+    Box(
+        rootModifier
+            .padding(top = safeTopPadding)
+            .navigationBarsPadding()
+    ) {
+        PrinterNotificationHost(
+            message = printerMessage,
+            onClose = { printerMessage = null },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .zIndex(10f)
+        )
         if (mode == AppMode.MENU) {
             MainMenuScreen(
                 onBack = { context.findActivity()?.finish() },
                 onSupply = { mode = AppMode.SUPPLY },
                 onPreAssembly = { mode = AppMode.PRE_ASSEMBLY },
-                onFbsAssembly = { mode = AppMode.FBS_ASSEMBLY }
+                onFbsAssembly = { mode = AppMode.FBS_ASSEMBLY },
+                onUpdates = {
+                    mode = AppMode.SUPPLY
+                    vm.goSettings()
+                }
             )
             return@Box
         }
         if (mode == AppMode.FBS_ASSEMBLY) {
-            FbsAssemblyScreen(state = fbsAssemblyState, vm = fbsAssemblyVm, onBack = { mode = AppMode.MENU })
+            val screenVm = fbsAssemblyVm.value
+            val screenState by screenVm.state.collectAsStateWithLifecycle()
+            FbsAssemblyScreen(state = screenState, vm = screenVm, onBack = { mode = AppMode.MENU })
             return@Box
         }
         if (mode == AppMode.PRE_ASSEMBLY) {
-            PreAssemblyScreen(state = preAssemblyState, vm = preAssemblyVm, onBack = { mode = AppMode.MENU })
+            val screenVm = preAssemblyVm.value
+            val screenState by screenVm.state.collectAsStateWithLifecycle()
+            PreAssemblyScreen(state = screenState, vm = screenVm, onBack = { mode = AppMode.MENU })
             return@Box
         }
+        val state by vm.state.collectAsStateWithLifecycle()
+        LaunchedEffect(vm) {
+            vm.ensureLoaded()
+        }
+        val showStartupLoader = state.isBusy && state.shipments.isEmpty() && state.screen == AppScreen.SHIPMENTS
         if (showStartupLoader) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = AccentColor, strokeWidth = 3.dp, modifier = Modifier.size(32.dp))
@@ -860,6 +1127,46 @@ fun AppRoot(vm: AppViewModel) {
 }
 
 @Composable
+private fun rememberFullscreenSafeTopPadding(): Dp {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val fallbackPadding = remember(context) {
+        val resourceId = context.resources.getIdentifier("status_bar_height", "dimen", "android")
+        val resourcePadding = if (resourceId > 0) {
+            context.resources.getDimension(resourceId) / context.resources.displayMetrics.density
+        } else {
+            0f
+        }
+        maxOf(resourcePadding, 32f).dp
+    }
+    var measuredTopInsetPx by remember(view, configuration.orientation) { mutableStateOf(0) }
+
+    LaunchedEffect(view, configuration.orientation) {
+        ViewCompat.requestApplyInsets(view)
+        repeat(4) {
+            val insets = ViewCompat.getRootWindowInsets(view)
+            val statusTop = insets
+                ?.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars())
+                ?.top
+                ?: 0
+            val cutoutTop = insets
+                ?.getInsets(WindowInsetsCompat.Type.displayCutout())
+                ?.top
+                ?: 0
+            measuredTopInsetPx = maxOf(measuredTopInsetPx, statusTop, cutoutTop)
+            if (measuredTopInsetPx > 0) return@LaunchedEffect
+            delay(50L)
+        }
+    }
+
+    val measuredPadding = with(density) { measuredTopInsetPx.toDp() }
+    val basePadding = if (measuredPadding > fallbackPadding) measuredPadding else fallbackPadding
+    return maxOf(basePadding - 6.dp, 24.dp)
+}
+
+@Composable
 private fun AppMessage(text: String, onClose: () -> Unit) {
     ModernCard(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
         Row(
@@ -872,6 +1179,85 @@ private fun AppMessage(text: String, onClose: () -> Unit) {
                 Text(text, color = MainTextColor, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             TextButton(onClick = onClose) { Text("OK", color = AccentColor, fontWeight = FontWeight.Bold) }
+        }
+    }
+}
+
+@Composable
+private fun PrinterNotificationHost(
+    message: PrinterUiMessage?,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = message != null,
+        modifier = modifier,
+        enter = fadeIn(animationSpec = tween(160)) +
+            slideInVertically(animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f)) { -it / 3 } +
+            scaleIn(initialScale = 0.96f, animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f)),
+        exit = fadeOut(animationSpec = tween(130)) +
+            slideOutVertically(animationSpec = tween(160)) { -it / 4 } +
+            scaleOut(targetScale = 0.97f, animationSpec = tween(130))
+    ) {
+        message?.let { item ->
+            val accent = if (item.isError) DangerColor else FbsNeonGreen
+            Row(
+                Modifier
+                    .widthIn(max = 360.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(FbsDarkPanelAlt.copy(alpha = 0.98f))
+                    .border(1.dp, accent.copy(alpha = 0.52f), RoundedCornerShape(22.dp))
+                    .shadow(
+                        elevation = 18.dp,
+                        shape = RoundedCornerShape(22.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.36f),
+                        spotColor = accent.copy(alpha = 0.18f)
+                    )
+                    .padding(start = 12.dp, top = 10.dp, end = 8.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = 0.14f))
+                        .border(1.dp, accent.copy(alpha = 0.32f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (item.isError) Icons.Outlined.WarningAmber else Icons.Outlined.Print,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        item.title,
+                        color = FbsDarkText,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp,
+                        lineHeight = 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    item.text?.let { text ->
+                        Text(
+                            text,
+                            color = FbsDarkMutedText,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                IconButton(onClick = onClose, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Outlined.Close, contentDescription = "Закрыть", tint = accent, modifier = Modifier.size(18.dp))
+                }
+            }
         }
     }
 }
@@ -1005,8 +1391,10 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
         }
     }
 
-    val filtered = state.shipments.filter {
-        query.isBlank() || it.title.contains(query, true) || it.marketplace.contains(query, true) || it.date.contains(query, true)
+    val filtered = remember(state.shipments, query) {
+        state.shipments.filter {
+            query.isBlank() || it.title.contains(query, true) || it.marketplace.contains(query, true) || it.date.contains(query, true)
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -1129,10 +1517,18 @@ private fun ShipmentsScreen(state: AppUiState, vm: AppViewModel) {
 
 @Composable
 private fun ShipmentsDashboard(state: AppUiState) {
-    val activeCount = state.shipments.count { !it.isArchived }
-    val boxCount = state.shipments.sumOf { it.boxCount }
-    val itemCount = state.shipments.sumOf { it.itemCount }
-    val positionCount = state.shipments.sumOf { it.positionCount }
+    val metrics = remember(state.shipments) {
+        longArrayOf(
+            state.shipments.count { !it.isArchived }.toLong(),
+            state.shipments.sumOf { it.boxCount.toLong() },
+            state.shipments.sumOf { it.itemCount },
+            state.shipments.sumOf { it.positionCount.toLong() }
+        )
+    }
+    val activeCount = metrics[0]
+    val boxCount = metrics[1]
+    val itemCount = metrics[2]
+    val positionCount = metrics[3]
 
     ModernCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1380,8 +1776,10 @@ private fun CitiesScreen(state: AppUiState, vm: AppViewModel) {
     var addExpanded by rememberSaveable { mutableStateOf(false) }
     var exportExpanded by rememberSaveable { mutableStateOf(false) }
     val shipment = state.shipments.firstOrNull { it.id == state.selectedShipmentId }
-    val filteredCities = state.shipmentCities.filter {
-        cityQuery.isBlank() || it.cityName.contains(cityQuery, ignoreCase = true)
+    val filteredCities = remember(state.shipmentCities, cityQuery) {
+        state.shipmentCities.filter {
+            cityQuery.isBlank() || it.cityName.contains(cityQuery, ignoreCase = true)
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -1700,7 +2098,7 @@ private fun BoxScreen(state: AppUiState, vm: AppViewModel) {
     var selectedItem by remember { mutableStateOf<BoxItemData?>(null) }
     val shipment = state.shipments.firstOrNull { it.id == state.selectedShipmentId }
     val currentMarketplace = shipment?.marketplace ?: "Ozon"
-    val totalUnits = state.boxItems.sumOf { it.quantity }
+    val totalUnits = remember(state.boxItems) { state.boxItems.sumOf { it.quantity } }
 
     Box(Modifier.fillMaxSize()) {
         Column(
@@ -2422,6 +2820,9 @@ private fun SettingsScreen(state: AppUiState, vm: AppViewModel) {
             }
         }
         item {
+            AppUpdateSettingsCard(update = state.update, vm = vm)
+        }
+        item {
             SettingsGroup(
                 title = "Правила сборки",
                 subtitle = "То, что помогает не ошибаться на складе",
@@ -2445,6 +2846,129 @@ private fun SettingsScreen(state: AppUiState, vm: AppViewModel) {
                 Text("В карточках товаров используется маркетплейс текущей поставки, а не жестко заданный Ozon.", color = MutedTextColor, fontSize = 14.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun AppUpdateSettingsCard(update: AppUpdateUiState, vm: AppViewModel) {
+    val info = update.info
+    val actionEnabled = !update.isChecking && !update.isDownloading
+    val canDownload = info?.isUpdateAvailable == true && update.downloadedApkPath == null
+    val canInstall = update.downloadedApkPath != null
+    SettingsGroup(
+        title = "Обновление приложения",
+        subtitle = "Локальный сервер обновлений на этом компьютере",
+        icon = Icons.Outlined.FileDownload
+    ) {
+        SettingsInfoRow("Текущая версия", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+        ModernTextField(
+            value = update.serverUrl,
+            onValueChange = vm::changeUpdateServerUrl,
+            label = "URL манифеста",
+            placeholder = "192.168.10.104:8088",
+            leadingIcon = Icons.Outlined.Settings,
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (info != null) {
+            SettingsInfoRow("Версия на сервере", "${info.versionName} (${info.versionCode})")
+            SettingsInfoRow("Размер APK", formatUpdateBytes(info.apkSizeBytes))
+            StatusBadge(
+                text = if (info.isUpdateAvailable) "Доступно обновление" else "Версия актуальна",
+                tone = if (info.isUpdateAvailable) BadgeTone.Green else BadgeTone.Gray
+            )
+            info.notes?.takeIf { it.isNotBlank() }?.let { notes ->
+                Text(notes, color = MutedTextColor, fontSize = 13.sp, lineHeight = 17.sp)
+            }
+        }
+        if (update.isChecking || update.isDownloading) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFFF7F9FF))
+                    .border(1.dp, CardBorderColor.copy(alpha = 0.7f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 12.dp, vertical = 11.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(color = AccentColor, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+                Text(
+                    text = if (update.isDownloading) {
+                        "Скачивание ${formatUpdateProgress(update)}"
+                    } else {
+                        "Проверка сервера"
+                    },
+                    color = MainTextColor,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        update.message?.let { message ->
+            StatusBadge(message, tone = if (update.status == AppUpdateStatus.ERROR) BadgeTone.Purple else BadgeTone.Blue)
+        }
+        update.error?.let { error ->
+            Text(error, color = DangerColor, fontSize = 13.sp, lineHeight = 17.sp)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AppSecondaryButton(
+                text = "Проверить",
+                modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.Search,
+                enabled = actionEnabled,
+                onClick = vm::checkForUpdate
+            )
+            if (canInstall) {
+                AppPrimaryButton(
+                    text = "Установить",
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.CheckCircle,
+                    enabled = actionEnabled,
+                    onClick = vm::installDownloadedUpdate
+                )
+            } else {
+                AppPrimaryButton(
+                    text = "Скачать",
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Outlined.FileDownload,
+                    enabled = actionEnabled && canDownload,
+                    onClick = vm::downloadUpdate
+                )
+            }
+        }
+        if (update.status == AppUpdateStatus.INSTALL_PERMISSION_REQUIRED) {
+            AppSecondaryButton(
+                text = "Разрешить установку",
+                modifier = Modifier.fillMaxWidth(),
+                icon = Icons.Outlined.Settings,
+                onClick = vm::openUpdateInstallPermission
+            )
+        }
+    }
+}
+
+private fun formatUpdateProgress(update: AppUpdateUiState): String {
+    val percent = update.downloadProgress?.let { "${(it * 100).toInt()}%" }
+    val bytes = when {
+        update.totalBytes != null -> "${formatUpdateBytes(update.downloadedBytes)} / ${formatUpdateBytes(update.totalBytes)}"
+        update.downloadedBytes > 0L -> formatUpdateBytes(update.downloadedBytes)
+        else -> null
+    }
+    return listOfNotNull(percent, bytes).joinToString(" · ").ifBlank { "" }
+}
+
+private fun formatUpdateBytes(bytes: Long?): String {
+    val value = bytes ?: return "неизвестно"
+    if (value <= 0L) return "неизвестно"
+    val mb = 1024L * 1024L
+    val kb = 1024L
+    return if (value >= mb) {
+        val whole = value / mb
+        val tenth = ((value % mb) * 10L) / mb
+        "$whole.$tenth МБ"
+    } else {
+        "${(value / kb).coerceAtLeast(1L)} КБ"
     }
 }
 
@@ -2676,24 +3200,50 @@ private data class ModeBadgeData(
     val tone: Color
 )
 
+private data class ModeCompactData(
+    val title: String,
+    val subtitle: String,
+    val tag: String,
+    val icon: ImageVector,
+    val accent: Color
+)
+
 @Composable
 private fun MainMenuScreen(
     onBack: () -> Unit,
     onSupply: () -> Unit,
     onPreAssembly: () -> Unit,
-    onFbsAssembly: () -> Unit
+    onFbsAssembly: () -> Unit,
+    onUpdates: () -> Unit
 ) {
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFFFBFDFF), Color(0xFFF2F7FF), Color(0xFFEAF2FF))
+                    listOf(Color(0xFFF7F8F3), Color(0xFFEFF6F7), Color(0xFFF8F2E8))
                 )
             )
     ) {
-        val compact = maxWidth < CompactScreenBreakpoint
-        val horizontalPadding = if (compact) 16.dp else 24.dp
+        val narrow = maxWidth < 410.dp
+        val dense = maxHeight < 740.dp
+        val horizontalPadding = if (narrow) 14.dp else 20.dp
+        val modeCards = listOf(
+            ModeCompactData(
+                title = "Поставки",
+                subtitle = "Склады, города, короба и товары",
+                tag = "Основной склад",
+                icon = Icons.Outlined.Inventory2,
+                accent = AccentColor
+            ),
+            ModeCompactData(
+                title = "Предсборка Ozon",
+                subtitle = "Проверка остатков и список на перемещение",
+                tag = "Перемещение",
+                icon = Icons.Outlined.CheckCircle,
+                accent = SuccessColor
+            )
+        )
 
         ModeMenuBackground(Modifier.matchParentSize())
         LazyColumn(
@@ -2701,48 +3251,34 @@ private fun MainMenuScreen(
             contentPadding = PaddingValues(
                 start = horizontalPadding,
                 end = horizontalPadding,
-                top = if (compact) 14.dp else 22.dp,
-                bottom = 28.dp
+                top = if (dense || narrow) 8.dp else 12.dp,
+                bottom = if (dense) 16.dp else 22.dp
             ),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 18.dp)
+            verticalArrangement = Arrangement.spacedBy(if (dense || narrow) 10.dp else 12.dp)
         ) {
             item {
-                ModeMenuHero(onBack = onBack, compact = compact)
+                ModeMenuHero(onBack = onBack, narrow = narrow, dense = dense)
             }
             item {
-                ModeChoiceCard(
-                    title = "Поставка на склады",
-                    subtitle = "Основной режим работы с поставками, городами и коробами",
-                    icon = Icons.Outlined.Inventory2,
-                    accent = AccentColor,
-                    onClick = onSupply
-                )
-            }
-            item {
-                ModeChoiceCard(
-                    title = "Предварительная сборка",
-                    subtitle = "Ручная проверка заказов Ozon: есть товар, нет товара, сколько переместить",
-                    icon = Icons.Outlined.CheckCircle,
-                    accent = SuccessColor,
-                    badges = listOf(
-                        ModeBadgeData("Отдельный экран", Icons.Outlined.Description, AccentColor),
-                        ModeBadgeData("Список бухгалтеру", Icons.Outlined.CheckCircle, SuccessColor)
-                    ),
-                    onClick = onPreAssembly
-                )
-            }
-            item {
-                ModeChoiceCard(
-                    title = "Сборка",
-                    subtitle = "Последовательная FBS-сборка заказов Ozon с прогрессом, канистрами и таймером до 16:00",
+                ModeFeaturedModeCard(
+                    title = "Сборка FBS",
+                    subtitle = "Последовательно собираем заказы Ozon, печатаем этикетки и держим темп до 16:00.",
                     icon = Icons.Outlined.QrCodeScanner,
-                    accent = WarningColor,
-                    badges = listOf(
-                        ModeBadgeData("Заказы по одному", Icons.Outlined.Inventory2, AccentColor),
-                        ModeBadgeData("Таймер 16:00", Icons.Outlined.CalendarMonth, WarningColor)
-                    ),
+                    accent = FbsNeonGreen,
+                    dense = dense,
                     onClick = onFbsAssembly
                 )
+            }
+            item {
+                ModeCompactGrid(
+                    items = modeCards,
+                    dense = dense,
+                    onSupply = onSupply,
+                    onPreAssembly = onPreAssembly
+                )
+            }
+            item {
+                ModeMaintenanceStrip(dense = dense, onClick = onUpdates)
             }
         }
     }
@@ -2751,84 +3287,476 @@ private fun MainMenuScreen(
 @Composable
 private fun ModeMenuBackground(modifier: Modifier = Modifier) {
     Canvas(modifier) {
-        val stroke = 2.dp.toPx()
-        drawCircle(
-            color = Color.White.copy(alpha = 0.78f),
-            radius = size.width * 0.42f,
-            center = Offset(size.width * 0.98f, -size.height * 0.03f),
-            style = Stroke(width = stroke)
+        val lane = 1.dp.toPx()
+        drawRect(
+            color = Color.White.copy(alpha = 0.50f),
+            topLeft = Offset(0f, 0f),
+            size = Size(size.width, size.height * 0.28f)
         )
-        drawCircle(
-            color = Color.White.copy(alpha = 0.58f),
-            radius = size.width * 0.30f,
-            center = Offset(size.width * 0.96f, 0f),
-            style = Stroke(width = stroke)
+        drawRect(
+            color = Color(0xFFE8F2EF).copy(alpha = 0.42f),
+            topLeft = Offset(0f, size.height * 0.48f),
+            size = Size(size.width, size.height * 0.24f)
         )
-        drawCircle(
-            color = Color(0xFFE3ECFF).copy(alpha = 0.54f),
-            radius = size.width * 0.44f,
-            center = Offset(size.width * 0.88f, size.height * 1.03f),
-            style = Stroke(width = stroke)
+        repeat(6) { index ->
+            val y = size.height * (0.16f + index * 0.12f)
+            drawLine(
+                color = Color.White.copy(alpha = 0.34f),
+                start = Offset(size.width * -0.06f, y),
+                end = Offset(size.width * 1.06f, y - size.height * 0.045f),
+                strokeWidth = lane,
+                cap = StrokeCap.Round
+            )
+        }
+        drawLine(
+            color = SuccessColor.copy(alpha = 0.12f),
+            start = Offset(size.width * 0.10f, size.height * 0.08f),
+            end = Offset(size.width * 0.90f, size.height * 0.02f),
+            strokeWidth = 2.dp.toPx(),
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = WarningColor.copy(alpha = 0.10f),
+            start = Offset(size.width * 0.10f, size.height * 0.93f),
+            end = Offset(size.width * 0.90f, size.height * 0.84f),
+            strokeWidth = 2.dp.toPx(),
+            cap = StrokeCap.Round
         )
     }
 }
 
 @Composable
-private fun ModeMenuHero(onBack: () -> Unit, compact: Boolean) {
+private fun ModeMenuHero(onBack: () -> Unit, narrow: Boolean, dense: Boolean) {
     Box(
         Modifier
             .fillMaxWidth()
-            .height(if (compact) 306.dp else 346.dp)
-    ) {
-        IconButton(
-            onClick = onBack,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .size(if (compact) 54.dp else 62.dp)
-                .shadow(
-                    elevation = 14.dp,
-                    shape = CircleShape,
-                    ambientColor = Color(0x160B1226),
-                    spotColor = Color(0x220B1226)
-                )
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.96f))
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
-                contentDescription = "Назад",
-                tint = MainTextColor,
-                modifier = Modifier.size(if (compact) 27.dp else 31.dp)
+            .height(
+                when {
+                    dense -> 96.dp
+                    narrow -> 104.dp
+                    else -> 112.dp
+                }
             )
-        }
-
-        ModeHeroIllustration(
-            Modifier
-                .align(Alignment.TopEnd)
-                .size(if (compact) 178.dp else 232.dp)
-                .alpha(if (compact) 0.88f else 1f)
-        )
-
+    ) {
         Column(
             modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth(if (compact) 0.94f else 0.74f),
-            verticalArrangement = Arrangement.spacedBy(13.dp)
+                .fillMaxWidth()
+                .align(Alignment.TopStart),
+            verticalArrangement = Arrangement.spacedBy(if (dense || narrow) 8.dp else 10.dp)
         ) {
-            Text(
-                "Выбор режима",
-                fontSize = if (compact) 35.sp else 42.sp,
-                lineHeight = if (compact) 39.sp else 46.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MainTextColor
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .size(if (dense || narrow) 40.dp else 44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color.White.copy(alpha = 0.96f))
+                        .border(1.dp, Color(0xFFE0E7DF), RoundedCornerShape(14.dp))
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = "Назад",
+                        tint = MainTextColor,
+                        modifier = Modifier.size(if (dense || narrow) 21.dp else 23.dp)
+                    )
+                }
+                ModeMetricPill("Рабочая панель", Icons.Outlined.Business, AccentColor)
+            }
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    "Выберите режим",
+                    fontSize = if (dense || narrow) 27.sp else 30.sp,
+                    lineHeight = if (dense || narrow) 29.sp else 32.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MainTextColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "Откройте нужный рабочий сценарий",
+                    color = MutedTextColor,
+                    fontSize = if (dense || narrow) 12.sp else 13.sp,
+                    lineHeight = if (dense || narrow) 15.sp else 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModeMetricPill(text: String, icon: ImageVector, color: Color, dark: Boolean = false) {
+    val shape = RoundedCornerShape(999.dp)
+    Row(
+        modifier = Modifier
+            .heightIn(min = 28.dp)
+            .clip(shape)
+            .background(if (dark) color.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.88f))
+            .border(1.dp, if (dark) color.copy(alpha = 0.28f) else Color(0xFFE0E7DF), shape)
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(
+            text,
+            color = if (dark) FbsDarkText else MainTextColor,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            lineHeight = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun ModeMenuIconTile(
+    icon: ImageVector,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    dark: Boolean = false,
+    size: Dp = 48.dp
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(shape)
+            .background(if (dark) accent.copy(alpha = 0.13f) else accent.copy(alpha = 0.10f))
+            .border(1.dp, if (dark) accent.copy(alpha = 0.36f) else accent.copy(alpha = 0.16f), shape),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(size * 0.47f))
+    }
+}
+
+@Composable
+private fun ModeFeaturedModeCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    accent: Color,
+    dense: Boolean,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(22.dp)
+    BoxWithConstraints(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = if (dense) 148.dp else 164.dp)
+            .shadow(
+                elevation = 10.dp,
+                shape = shape,
+                ambientColor = Color.Black.copy(alpha = 0.14f),
+                spotColor = accent.copy(alpha = 0.10f)
             )
-            Text(
-                "Выберите, что нужно сделать сейчас.\nПоставки, проверка остатков и FBS-сборка открываются отдельно.",
-                color = MutedTextColor,
-                fontSize = if (compact) 17.sp else 19.sp,
-                lineHeight = if (compact) 25.sp else 28.sp
+            .clip(shape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF171A15), Color(0xFF0F120F))
+                )
+            )
+            .border(1.dp, accent.copy(alpha = 0.30f), shape)
+            .clickable(onClick = onClick)
+    ) {
+        val compact = maxWidth < 390.dp
+        Canvas(Modifier.matchParentSize()) {
+            drawRect(color = accent.copy(alpha = 0.92f), size = Size(5.dp.toPx(), size.height))
+            drawCircle(
+                color = accent.copy(alpha = 0.10f),
+                radius = size.width * 0.28f,
+                center = Offset(size.width * 0.94f, size.height * 0.08f)
+            )
+            repeat(4) { index ->
+                val x = size.width * (0.58f + index * 0.12f)
+                drawLine(
+                    color = Color.White.copy(alpha = 0.06f),
+                    start = Offset(x, 0f),
+                    end = Offset(x - size.width * 0.14f, size.height),
+                    strokeWidth = 1.dp.toPx(),
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = if (dense || compact) 15.dp else 18.dp, top = if (dense || compact) 14.dp else 16.dp, end = if (dense || compact) 14.dp else 16.dp, bottom = if (dense || compact) 14.dp else 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp)
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(if (dense || compact) 9.dp else 11.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)
+                ) {
+                    ModeMenuIconTile(icon = icon, accent = accent, dark = true, size = if (compact) 46.dp else 50.dp)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(
+                            "Рекомендуемый поток",
+                            color = accent,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 11.sp,
+                            lineHeight = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            title,
+                            color = FbsDarkText,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = if (compact) 24.sp else 27.sp,
+                            lineHeight = if (compact) 26.sp else 29.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                Text(
+                    subtitle,
+                    color = FbsDarkMutedText,
+                    fontSize = if (compact) 12.sp else 13.sp,
+                    lineHeight = if (compact) 16.sp else 18.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (compact) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ModeMetricPill("Заказы по одному", Icons.Outlined.Inventory2, AccentColor, dark = true)
+                        ModeMetricPill("Таймер 16:00", Icons.Outlined.CalendarMonth, WarningColor, dark = true)
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ModeMetricPill("Заказы по одному", Icons.Outlined.Inventory2, AccentColor, dark = true)
+                        ModeMetricPill("Печать", Icons.Outlined.Print, Color(0xFF0EA5E9), dark = true)
+                        ModeMetricPill("16:00", Icons.Outlined.CalendarMonth, WarningColor, dark = true)
+                    }
+                }
+            }
+            if (!compact) {
+                ModeFbsRoutePreview(accent = accent)
+            }
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(12.dp)
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(accent),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.AutoMirrored.Outlined.ArrowForward,
+                contentDescription = null,
+                tint = Color.Black,
+                modifier = Modifier.size(20.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun ModeFbsRoutePreview(accent: Color) {
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        modifier = Modifier
+            .width(92.dp)
+            .height(116.dp)
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.06f))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), shape)
+            .padding(10.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        ModeRouteDot(icon = Icons.Outlined.Inventory2, color = AccentColor)
+        Box(
+            Modifier
+                .width(2.dp)
+                .weight(1f)
+                .background(Color.White.copy(alpha = 0.14f))
+        )
+        ModeRouteDot(icon = Icons.Outlined.QrCodeScanner, color = accent, active = true)
+        Box(
+            Modifier
+                .width(2.dp)
+                .weight(1f)
+                .background(Color.White.copy(alpha = 0.14f))
+        )
+        ModeRouteDot(icon = Icons.Outlined.Print, color = Color(0xFF0EA5E9))
+    }
+}
+
+@Composable
+private fun ModeRouteDot(icon: ImageVector, color: Color, active: Boolean = false) {
+    Box(
+        modifier = Modifier
+            .size(if (active) 34.dp else 30.dp)
+            .clip(CircleShape)
+            .background(color.copy(alpha = if (active) 0.96f else 0.18f))
+            .border(1.dp, color.copy(alpha = if (active) 0.96f else 0.36f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = null, tint = if (active) Color.Black else color, modifier = Modifier.size(if (active) 18.dp else 16.dp))
+    }
+}
+
+@Composable
+private fun ModeCompactGrid(
+    items: List<ModeCompactData>,
+    dense: Boolean,
+    onSupply: () -> Unit,
+    onPreAssembly: () -> Unit
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val narrow = maxWidth < 500.dp
+        if (narrow) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                ModeCompactModeCard(item = items[0], dense = dense, onClick = onSupply, modifier = Modifier.fillMaxWidth())
+                ModeCompactModeCard(item = items[1], dense = dense, onClick = onPreAssembly, modifier = Modifier.fillMaxWidth())
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ModeCompactModeCard(item = items[0], dense = dense, onClick = onSupply, modifier = Modifier.weight(1f))
+                ModeCompactModeCard(item = items[1], dense = dense, onClick = onPreAssembly, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModeCompactModeCard(
+    item: ModeCompactData,
+    dense: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(20.dp)
+    Box(
+        modifier = modifier
+            .heightIn(min = if (dense) 104.dp else 112.dp)
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.96f))
+            .border(1.dp, Color(0xFFE0E7DF), shape)
+            .clickable(onClick = onClick)
+    ) {
+        Canvas(Modifier.matchParentSize()) {
+            drawRect(color = item.accent, size = Size(4.dp.toPx(), size.height))
+            drawCircle(
+                color = item.accent.copy(alpha = 0.055f),
+                radius = size.width * 0.28f,
+                center = Offset(size.width * 0.98f, size.height * 0.08f)
+            )
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, top = if (dense) 12.dp else 14.dp, end = 13.dp, bottom = if (dense) 12.dp else 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ModeMenuIconTile(icon = item.icon, accent = item.accent, size = 46.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        item.title,
+                        color = MainTextColor,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 17.sp,
+                        lineHeight = 19.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    ModeInlineTag(item.tag, color = item.accent)
+                }
+                Text(
+                    item.subtitle,
+                    color = MutedTextColor,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Icon(
+                Icons.AutoMirrored.Outlined.ArrowForward,
+                contentDescription = null,
+                tint = item.accent,
+                modifier = Modifier.size(22.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModeInlineTag(text: String, color: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(color.copy(alpha = 0.10f))
+            .border(1.dp, color.copy(alpha = 0.18f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Text(
+            text,
+            color = color,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+            lineHeight = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun ModeMaintenanceStrip(dense: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = if (dense) 58.dp else 64.dp)
+            .clip(shape)
+            .background(Color(0xFFFEFCF7).copy(alpha = 0.96f))
+            .border(1.dp, Color(0xFFE8E0CF), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        ModeMenuIconTile(icon = Icons.Outlined.FileDownload, accent = Color(0xFF0EA5E9), size = 42.dp)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                "Обновление приложения",
+                color = MainTextColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                lineHeight = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "Локальный сервер APK",
+                color = MutedTextColor,
+                fontSize = 11.sp,
+                lineHeight = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Icon(Icons.AutoMirrored.Outlined.ArrowForward, contentDescription = null, tint = Color(0xFF0EA5E9), modifier = Modifier.size(22.dp))
     }
 }
 
@@ -2876,28 +3804,28 @@ private fun ModeHeroIllustration(modifier: Modifier = Modifier) {
 
         drawOval(
             color = Color(0xFFD9E8FF).copy(alpha = 0.55f),
-            topLeft = Offset(size.width * 0.10f, size.height * 0.72f),
-            size = Size(size.width * 0.76f, size.height * 0.18f)
+            topLeft = Offset(size.width * -0.18f, size.height * 0.72f),
+            size = Size(size.width, size.height * 0.18f)
         )
         cube(
-            center = Offset(size.width * 0.53f, size.height * 0.48f),
-            side = size.width * 0.29f,
+            center = Offset(size.width * 0.34f, size.height * 0.50f),
+            side = size.width * 0.38f,
             top = Color.White.copy(alpha = 0.95f),
             left = Color(0xFFE8F0FF).copy(alpha = 0.86f),
             right = Color(0xFFF8FBFF).copy(alpha = 0.95f),
             edge = Color(0xFFC8D9F8).copy(alpha = 0.50f)
         )
         cube(
-            center = Offset(size.width * 0.56f, size.height * 0.18f),
-            side = size.width * 0.21f,
+            center = Offset(size.width * 0.38f, size.height * 0.17f),
+            side = size.width * 0.29f,
             top = Color(0xFFA8C9FF),
             left = Color(0xFF4EA7FF),
             right = Color(0xFF2F6BFF),
             edge = Color(0xFF7FAEFF)
         )
         cube(
-            center = Offset(size.width * 0.88f, size.height * 0.62f),
-            side = size.width * 0.15f,
+            center = Offset(size.width * 0.83f, size.height * 0.64f),
+            side = size.width * 0.21f,
             top = Color(0xFFBEE1FF).copy(alpha = 0.95f),
             left = Color(0xFF77C7FF).copy(alpha = 0.88f),
             right = Color(0xFF57A1FF).copy(alpha = 0.88f),
@@ -2913,57 +3841,72 @@ private fun ModeChoiceCard(
     icon: ImageVector,
     accent: Color,
     badges: List<ModeBadgeData> = emptyList(),
+    dense: Boolean = false,
     onClick: () -> Unit
 ) {
-    val shape = RoundedCornerShape(28.dp)
+    val shape = RoundedCornerShape(19.dp)
+    val minimumHeight = when {
+        badges.isNotEmpty() -> 0.dp
+        dense -> 96.dp
+        else -> 90.dp
+    }
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = minimumHeight)
             .shadow(
-                elevation = 20.dp,
+                elevation = 14.dp,
                 shape = shape,
-                ambientColor = Color(0x120B1226),
-                spotColor = Color(0x180B1226)
+                ambientColor = Color(0x100B1226),
+                spotColor = Color(0x160B1226)
             )
             .clip(shape)
-            .background(Color.White.copy(alpha = 0.96f))
+            .background(Color.White.copy(alpha = 0.97f))
             .border(1.dp, Color(0xFFE4EBF7), shape)
             .clickable(onClick = onClick)
     ) {
-        val compact = maxWidth < CompactScreenBreakpoint
+        val narrow = maxWidth < NarrowScreenBreakpoint
+        val condensed = dense || narrow
+        val iconSize = if (condensed) 56.dp else 60.dp
+        val contentGap = if (condensed) 30.dp else 26.dp
+        val badgeGap = if (condensed) 12.dp else 8.dp
         Canvas(Modifier.matchParentSize()) {
             drawRect(
                 color = accent,
                 topLeft = Offset.Zero,
-                size = Size(7.dp.toPx(), size.height)
+                size = Size(5.dp.toPx(), size.height)
+            )
+            drawCircle(
+                color = accent.copy(alpha = 0.09f),
+                radius = if (condensed) 145.dp.toPx() else 155.dp.toPx(),
+                center = Offset(
+                    x = (-10).dp.toPx(),
+                    y = (-35).dp.toPx()
+                )
             )
         }
         Column(
             Modifier.padding(
-                start = if (compact) 18.dp else 24.dp,
-                top = if (compact) 18.dp else 24.dp,
-                end = if (compact) 16.dp else 22.dp,
-                bottom = if (badges.isEmpty()) {
-                    if (compact) 18.dp else 24.dp
-                } else {
-                    if (compact) 20.dp else 24.dp
-                }
+                start = if (condensed) 21.dp else 20.dp,
+                top = if (condensed) 10.dp else 12.dp,
+                end = if (condensed) 21.dp else 20.dp,
+                bottom = if (condensed) 10.dp else 12.dp
             )
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 20.dp)
+                horizontalArrangement = Arrangement.spacedBy(contentGap)
             ) {
-                ModeChoiceIcon(icon = icon, accent = accent, size = if (compact) 70.dp else 86.dp)
+                ModeChoiceIcon(icon = icon, accent = accent, size = iconSize)
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     Text(
                         title,
                         fontWeight = FontWeight.ExtraBold,
-                        fontSize = if (compact) 24.sp else 28.sp,
-                        lineHeight = if (compact) 28.sp else 32.sp,
+                        fontSize = if (condensed) 16.sp else 18.sp,
+                        lineHeight = if (condensed) 19.sp else 21.sp,
                         color = MainTextColor,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -2971,15 +3914,15 @@ private fun ModeChoiceCard(
                     Text(
                         subtitle,
                         color = MutedTextColor,
-                        fontSize = if (compact) 16.sp else 18.sp,
-                        lineHeight = if (compact) 23.sp else 26.sp,
-                        maxLines = 3,
+                        fontSize = if (condensed) 11.sp else 13.sp,
+                        lineHeight = if (condensed) 16.sp else 18.sp,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
                 Box(
                     modifier = Modifier
-                        .size(if (compact) 48.dp else 58.dp)
+                        .size(if (condensed) 40.dp else 44.dp)
                         .clip(CircleShape)
                         .background(accent.copy(alpha = 0.10f)),
                     contentAlignment = Alignment.Center
@@ -2989,19 +3932,21 @@ private fun ModeChoiceCard(
                         contentDescription = null,
                         tint = accent,
                         modifier = Modifier
-                            .size(if (compact) 28.dp else 32.dp)
+                            .size(if (condensed) 24.dp else 27.dp)
                             .rotate(-90f)
                     )
                 }
             }
             if (badges.isNotEmpty()) {
-                Spacer(Modifier.height(if (compact) 18.dp else 22.dp))
+                Spacer(Modifier.height(if (condensed) 7.dp else 9.dp))
                 Row(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(if (condensed) 6.dp else 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Spacer(Modifier.width(iconSize + badgeGap))
                     badges.forEach { badge ->
-                        ModeBadge(badge = badge, modifier = Modifier.weight(1f))
+                        ModeBadge(badge = badge, compact = condensed, modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -3014,36 +3959,49 @@ private fun ModeChoiceIcon(icon: ImageVector, accent: Color, size: androidx.comp
     Box(
         modifier = Modifier
             .size(size)
+            .shadow(
+                elevation = 9.dp,
+                shape = CircleShape,
+                ambientColor = Color(0x140B1226),
+                spotColor = accent.copy(alpha = 0.14f)
+            )
             .clip(CircleShape)
             .background(
                 Brush.radialGradient(
-                    listOf(accent.copy(alpha = 0.15f), accent.copy(alpha = 0.05f), Color.Transparent)
+                    listOf(Color.White, Color.White.copy(alpha = 0.96f), accent.copy(alpha = 0.05f))
                 )
-            ),
+            )
+            .border(1.dp, Color.White.copy(alpha = 0.82f), CircleShape),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(size * 0.44f))
+        Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(size * 0.46f))
     }
 }
 
 @Composable
-private fun ModeBadge(badge: ModeBadgeData, modifier: Modifier = Modifier) {
+private fun ModeBadge(badge: ModeBadgeData, compact: Boolean, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(999.dp))
             .background(badge.tone.copy(alpha = 0.10f))
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .heightIn(min = if (compact) 26.dp else 28.dp)
+            .padding(horizontal = if (compact) 8.dp else 9.dp, vertical = if (compact) 5.dp else 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center
     ) {
-        Icon(badge.icon, contentDescription = null, tint = badge.tone, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(7.dp))
+        Icon(
+            badge.icon,
+            contentDescription = null,
+            tint = badge.tone,
+            modifier = Modifier.size(if (compact) 15.dp else 16.dp)
+        )
+        Spacer(Modifier.width(if (compact) 5.dp else 6.dp))
         Text(
             badge.text,
             color = badge.tone,
             fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            lineHeight = 16.sp,
+            fontSize = if (compact) 11.sp else 12.sp,
+            lineHeight = if (compact) 13.sp else 14.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -3052,16 +4010,58 @@ private fun ModeBadge(badge: ModeBadgeData, modifier: Modifier = Modifier) {
 
 @Composable
 private fun FbsAssemblyScreen(state: FbsAssemblyUiState, vm: FbsAssemblyViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
     var pageName by rememberSaveable { mutableStateOf(FbsAssemblyPage.HOME.name) }
-    var showRefreshConfirm by rememberSaveable { mutableStateOf(false) }
-    var showLabelScanner by rememberSaveable { mutableStateOf(false) }
+    var overlayName by rememberSaveable { mutableStateOf<String?>(null) }
+    var renderedOverlayName by rememberSaveable { mutableStateOf<String?>(null) }
+    var topChromeExpanded by rememberSaveable { mutableStateOf(true) }
+    var showResetDataConfirm by rememberSaveable { mutableStateOf(false) }
+    var labelServerHost by rememberSaveable { mutableStateOf(OzonLabelPrinter.savedServerHost(context)) }
+    var usbDirectPrintEnabled by rememberSaveable { mutableStateOf(UsbDirectPrinter.isEnabled(context)) }
+    var usbRawPdfEnabled by rememberSaveable { mutableStateOf(UsbDirectPrinter.isRawPdfEnabled(context)) }
+    var usbPrintOffsetMm by rememberSaveable {
+        mutableStateOf(UsbDirectPrinter.formatOffsetXMm(UsbDirectPrinter.offsetXMm(context)))
+    }
+    var usbStatusRefresh by rememberSaveable { mutableStateOf(0) }
+    var notificationStatusRefresh by rememberSaveable { mutableStateOf(0) }
+    val usbPrinterStatus = remember(usbStatusRefresh, usbDirectPrintEnabled, usbRawPdfEnabled) {
+        UsbDirectPrinter.statusText(context)
+    }
+    val notificationStatus = remember(notificationStatusRefresh) {
+        FbsOrderNotificationService(context).notificationStatusText()
+    }
     val page = FbsAssemblyPage.values().firstOrNull { it.name == pageName } ?: FbsAssemblyPage.HOME
+    val overlay = FbsAssemblyOverlay.values().firstOrNull { it.name == overlayName }
+    val renderedOverlay = FbsAssemblyOverlay.values().firstOrNull { it.name == renderedOverlayName }
+    val backgroundScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (overlay == null) 1f else 0.985f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 500f),
+        label = "fbs_background_scale"
+    )
 
     LaunchedEffect(Unit) {
         if (!state.isLoaded && !state.isLoading) vm.loadOrders()
     }
+    LaunchedEffect(vm, state.mode, state.isFinished) {
+        if (state.mode != FbsAssemblyMode.ASSEMBLY || state.isFinished) return@LaunchedEffect
+        while (true) {
+            delay(FBS_ASSEMBLY_AUTO_REFRESH_INTERVAL_MILLIS)
+            vm.autoRefreshOrders()
+        }
+    }
     LaunchedEffect(state.isFinished) {
-        if (state.isFinished) pageName = FbsAssemblyPage.FINISH.name
+        if (state.isFinished) {
+            overlayName = null
+            pageName = FbsAssemblyPage.FINISH.name
+        }
+    }
+    LaunchedEffect(overlayName) {
+        if (overlayName != null) {
+            renderedOverlayName = overlayName
+        } else {
+            delay(230)
+            if (overlayName == null) renderedOverlayName = null
+        }
     }
     LaunchedEffect(state.message) {
         if (state.message != null) {
@@ -3070,32 +4070,50 @@ private fun FbsAssemblyScreen(state: FbsAssemblyUiState, vm: FbsAssemblyViewMode
         }
     }
 
+    fun openOverlay(value: FbsAssemblyOverlay) {
+        renderedOverlayName = value.name
+        overlayName = value.name
+    }
+
     fun refreshOrders() {
-        if (state.isStarted && !state.isFinished) {
-            showRefreshConfirm = true
-        } else {
-            vm.loadOrders()
+        vm.loadOrders()
+    }
+
+    BackHandler(enabled = overlay != null) {
+        overlayName = null
+    }
+    BackHandler(enabled = overlay == null) {
+        if (page == FbsAssemblyPage.HOME) onBack() else pageName = FbsAssemblyPage.HOME.name
+    }
+
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .background(FbsDarkBackground)
+    ) {
+        val compactScreen = maxHeight < 740.dp || maxWidth < 430.dp
+        val denseScreen = maxHeight < 620.dp || maxWidth < 370.dp
+        val screenPadding = if (compactScreen) 10.dp else 18.dp
+        val sectionSpacing = when {
+            denseScreen -> 7.dp
+            compactScreen -> 8.dp
+            else -> 14.dp
         }
-    }
-
-    if (showLabelScanner) {
-        BarcodeScannerScreen(
-            onCodeScanned = { code ->
-                showLabelScanner = false
-                vm.scanCurrentOrderLabel(code)
-            },
-            onClose = { showLabelScanner = false },
-            title = "Наведите камеру на штрихкод или QR-код этикетки Ozon"
-        )
-        return
-    }
-
-    Box(Modifier.fillMaxSize()) {
+        val feedbackTopPadding = when {
+            !topChromeExpanded -> 48.dp
+            compactScreen -> 72.dp
+            else -> 88.dp
+        }
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .blur(if (overlay == null) 0.dp else 10.dp)
+                .graphicsLayer {
+                    scaleX = backgroundScale
+                    scaleY = backgroundScale
+                }
+                .padding(horizontal = screenPadding, vertical = if (denseScreen) 8.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(sectionSpacing)
         ) {
             FbsAssemblyHeader(
                 onBack = {
@@ -3103,14 +4121,14 @@ private fun FbsAssemblyScreen(state: FbsAssemblyUiState, vm: FbsAssemblyViewMode
                 },
                 onRefresh = ::refreshOrders,
                 isLoading = state.isLoading,
+                compact = compactScreen,
+                expanded = topChromeExpanded,
+                onExpandedChange = { topChromeExpanded = it },
                 subtitle = when (page) {
-                    FbsAssemblyPage.HOME -> "FBS-заказы Ozon для последовательной сборки"
+                    FbsAssemblyPage.HOME -> "Сборка: FBS-заказы Ozon"
                     FbsAssemblyPage.LIST -> "Весь список заказов и товаров"
                     FbsAssemblyPage.WORK -> "Текущий заказ и прогресс сборки"
                     FbsAssemblyPage.FINISH -> "Итоги завершённой сборки"
-                    FbsAssemblyPage.ANALYTICS -> "Среднее время, прогноз и риски дедлайна"
-                    FbsAssemblyPage.HISTORY -> "Локальная история собранных заказов"
-                    FbsAssemblyPage.SETTINGS -> "Дедлайн, запас и базовое время"
                 }
             )
 
@@ -3121,13 +4139,16 @@ private fun FbsAssemblyScreen(state: FbsAssemblyUiState, vm: FbsAssemblyViewMode
                     FbsAssemblyPage.HOME -> FbsAssemblyHomeContent(
                         state = state,
                         onOpenList = { pageName = FbsAssemblyPage.LIST.name },
-                        onOpenAnalytics = { pageName = FbsAssemblyPage.ANALYTICS.name },
-                        onOpenHistory = { pageName = FbsAssemblyPage.HISTORY.name },
-                        onOpenSettings = { pageName = FbsAssemblyPage.SETTINGS.name },
+                        onOpenAnalytics = { openOverlay(FbsAssemblyOverlay.ANALYTICS) },
+                        onOpenHistory = { openOverlay(FbsAssemblyOverlay.HISTORY) },
+                        onOpenSettings = { openOverlay(FbsAssemblyOverlay.SETTINGS) },
+                        onModeChange = vm::setMode,
                         onRefresh = ::refreshOrders,
                         onStart = {
                             vm.startAssembly()
-                            if (state.orders.isNotEmpty()) pageName = FbsAssemblyPage.WORK.name
+                            if (fbsAssemblyPendingAssemblyOrders(state.orders).isNotEmpty()) {
+                                pageName = FbsAssemblyPage.WORK.name
+                            }
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -3139,7 +4160,7 @@ private fun FbsAssemblyScreen(state: FbsAssemblyUiState, vm: FbsAssemblyViewMode
                     FbsAssemblyPage.WORK -> FbsAssemblyWorkContent(
                         state = state,
                         onCollect = vm::collectCurrentOrder,
-                        onScanLabel = { showLabelScanner = true },
+                        onPrintLabel = vm::printCurrentOrderLabel,
                         onSkip = vm::skipCurrentOrder,
                         onRestart = {
                             vm.resetProgress()
@@ -3159,61 +4180,289 @@ private fun FbsAssemblyScreen(state: FbsAssemblyUiState, vm: FbsAssemblyViewMode
                         },
                         modifier = Modifier.weight(1f)
                     )
-                    FbsAssemblyPage.ANALYTICS -> FbsAssemblyAnalyticsContent(
-                        state = state,
-                        modifier = Modifier.weight(1f)
-                    )
-                    FbsAssemblyPage.HISTORY -> FbsAssemblyHistoryContent(
-                        state = state,
-                        modifier = Modifier.weight(1f)
-                    )
-                    FbsAssemblyPage.SETTINGS -> FbsAssemblySettingsContent(
-                        settings = state.settings,
-                        onSave = vm::saveForecastSettings,
-                        modifier = Modifier.weight(1f)
-                    )
                 }
             }
         }
 
-        if (state.isLoading && state.isLoaded) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 82.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(Color.White.copy(alpha = 0.94f))
-                    .border(1.dp, CardBorderColor, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(color = AccentColor, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                    Text("Обновляем заказы", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                }
-            }
-        }
         AnimatedVisibility(
             visible = state.message != null,
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(horizontal = 14.dp, vertical = 88.dp),
+                .padding(horizontal = 14.dp, vertical = feedbackTopPadding),
             enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 3 })
         ) {
-            state.message?.let { AppMessage(text = it, onClose = vm::clearMessage) }
+            state.message?.let { FbsAssemblyMessage(text = it, onClose = vm::clearMessage) }
+        }
+
+        AnimatedVisibility(
+            visible = overlay != null,
+            modifier = Modifier.fillMaxSize(),
+            enter = fadeIn(animationSpec = tween(170)) +
+                slideInVertically(
+                    initialOffsetY = { it / 14 },
+                    animationSpec = spring(dampingRatio = 0.76f, stiffness = 460f)
+                ) +
+                scaleIn(
+                    initialScale = 0.965f,
+                    animationSpec = spring(dampingRatio = 0.76f, stiffness = 500f)
+                ),
+            exit = fadeOut(animationSpec = tween(210)) +
+                slideOutVertically(targetOffsetY = { it / 18 }, animationSpec = tween(210)) +
+                scaleOut(targetScale = 0.98f, animationSpec = tween(210))
+        ) {
+            renderedOverlay?.let { currentOverlay ->
+                FbsAssemblyPopupSurface(
+                    overlay = currentOverlay,
+                    onDismiss = { overlayName = null }
+                ) { contentModifier ->
+                    when (currentOverlay) {
+                        FbsAssemblyOverlay.ANALYTICS -> FbsAssemblyAnalyticsContent(
+                            state = state,
+                            onRefresh = ::refreshOrders,
+                            modifier = contentModifier
+                        )
+                        FbsAssemblyOverlay.HISTORY -> FbsAssemblyHistoryContent(
+                            state = state,
+                            modifier = contentModifier
+                        )
+                        FbsAssemblyOverlay.SETTINGS -> FbsAssemblySettingsContent(
+                            settings = state.settings,
+                            notificationStatus = notificationStatus,
+                            onSendTestNotification = {
+                                FbsOrderNotificationService(context).notifyTest()
+                                notificationStatusRefresh++
+                            },
+                            onOpenNotificationSettings = {
+                                FbsOrderNotificationService.openNotificationSettings(context)
+                                notificationStatusRefresh++
+                            },
+                            labelServerHost = labelServerHost,
+                            onLabelServerHostChange = { host ->
+                                labelServerHost = host
+                                OzonLabelPrinter.saveServerHost(context, host)
+                            },
+                            onPrintLabelTest = { OzonLabelPrinter.printTestLabel(context) },
+                            usbDirectPrintEnabled = usbDirectPrintEnabled,
+                            usbRawPdfEnabled = usbRawPdfEnabled,
+                            usbPrinterStatus = usbPrinterStatus,
+                            usbPrintOffsetMm = usbPrintOffsetMm,
+                            onUsbDirectPrintEnabledChange = { enabled ->
+                                usbDirectPrintEnabled = enabled
+                                UsbDirectPrinter.setEnabled(context, enabled)
+                                usbStatusRefresh++
+                            },
+                            onUsbRawPdfEnabledChange = { enabled ->
+                                usbRawPdfEnabled = enabled
+                                UsbDirectPrinter.setRawPdfEnabled(context, enabled)
+                                usbStatusRefresh++
+                            },
+                            onUsbPrintOffsetMmChange = { value ->
+                                usbPrintOffsetMm = value
+                                    .replace(',', '.')
+                                    .filterIndexed { index, char ->
+                                        char.isDigit() || char == '.' || (char == '-' && index == 0)
+                                    }
+                                    .take(6)
+                            },
+                            onSaveUsbPrintOffset = {
+                                val saved = UsbDirectPrinter.saveOffsetXMm(
+                                    context,
+                                    usbPrintOffsetMm.replace(',', '.').toDoubleOrNull()
+                                        ?: UsbDirectPrinter.offsetXMm(context)
+                                )
+                                usbPrintOffsetMm = UsbDirectPrinter.formatOffsetXMm(saved)
+                                usbStatusRefresh++
+                                PrinterUiNotifier.success(
+                                    title = "Смещение сохранено",
+                                    text = "${UsbDirectPrinter.formatOffsetXMm(saved)} мм"
+                                )
+                            },
+                            onResetUsbPrintOffset = {
+                                val saved = UsbDirectPrinter.resetOffsetXMm(context)
+                                usbPrintOffsetMm = UsbDirectPrinter.formatOffsetXMm(saved)
+                                usbStatusRefresh++
+                                PrinterUiNotifier.success(
+                                    title = "Смещение сброшено",
+                                    text = "${UsbDirectPrinter.formatOffsetXMm(saved)} мм"
+                                )
+                            },
+                            onPrintUsbTest = {
+                                usbStatusRefresh++
+                                UsbDirectPrinter.printTestPage(context)
+                            },
+                            onRefreshUsbStatus = { usbStatusRefresh++ },
+                            onSave = vm::saveForecastSettings,
+                            onResetData = { showResetDataConfirm = true },
+                            modifier = contentModifier
+                        )
+                    }
+                }
+            }
         }
     }
 
-    if (showRefreshConfirm) {
-        FbsAssemblyRefreshConfirmDialog(
-            onDismiss = { showRefreshConfirm = false },
+    if (showResetDataConfirm) {
+        FbsAssemblyResetDataConfirmDialog(
+            onDismiss = { showResetDataConfirm = false },
             onConfirm = {
-                showRefreshConfirm = false
-                vm.loadOrders()
+                showResetDataConfirm = false
+                vm.resetAssemblyData()
+                overlayName = null
                 pageName = FbsAssemblyPage.HOME.name
             }
         )
+    }
+}
+
+@Composable
+private fun FbsAssemblyPopupSurface(
+    overlay: FbsAssemblyOverlay,
+    onDismiss: () -> Unit,
+    content: @Composable (Modifier) -> Unit
+) {
+    val closeInteraction = remember { MutableInteractionSource() }
+    val surfaceInteraction = remember { MutableInteractionSource() }
+    val (title, subtitle, icon) = when (overlay) {
+        FbsAssemblyOverlay.ANALYTICS -> Triple(
+            "Аналитика сборки",
+            "Темп, прогноз и риск дедлайна",
+            Icons.Outlined.Analytics
+        )
+        FbsAssemblyOverlay.HISTORY -> Triple(
+            "История сборки",
+            "Собранные и пропущенные заказы",
+            Icons.Outlined.History
+        )
+        FbsAssemblyOverlay.SETTINGS -> Triple(
+            "Настройки FBS",
+            "Прогноз, печать и локальные данные",
+            Icons.Outlined.Settings
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xCC000000), Color(0xF0000000))
+                )
+            )
+            .clickable(
+                interactionSource = closeInteraction,
+                indication = null,
+                onClick = onDismiss
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.90f)
+                .padding(horizontal = 12.dp, vertical = 18.dp)
+                .shadow(
+                    elevation = 30.dp,
+                    shape = RoundedCornerShape(30.dp),
+                    ambientColor = Color.Black.copy(alpha = 0.70f),
+                    spotColor = FbsNeonGreen.copy(alpha = 0.16f)
+                )
+                .clickable(
+                    interactionSource = surfaceInteraction,
+                    indication = null,
+                    onClick = {}
+            ),
+            shape = RoundedCornerShape(30.dp),
+            colors = CardDefaults.cardColors(containerColor = FbsDarkPanel.copy(alpha = 0.98f)),
+            border = BorderStroke(1.dp, FbsDarkBorder),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(FbsDarkPanel.copy(alpha = 0.98f), FbsDarkBackground.copy(alpha = 0.96f))
+                        )
+                    )
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .width(44.dp)
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(FbsDarkBorder)
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    AppIconBubble(
+                        icon = icon,
+                        tint = FbsNeonGreen,
+                        background = FbsNeonGreen.copy(alpha = 0.12f),
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            title,
+                            color = FbsDarkText,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 17.sp,
+                            lineHeight = 20.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            subtitle,
+                            color = FbsDarkMutedText,
+                            fontSize = 12.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    OutlinedIconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(44.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        border = BorderStroke(1.dp, FbsDarkBorder)
+                    ) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Закрыть", tint = FbsDarkText, modifier = Modifier.size(20.dp))
+                    }
+                }
+                HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.82f))
+                content(Modifier.weight(1f).fillMaxWidth())
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyMessage(text: String, onClose: () -> Unit) {
+    Row(
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(FbsDarkPanel.copy(alpha = 0.96f))
+            .border(1.dp, FbsNeonGreen.copy(alpha = 0.42f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text,
+            color = FbsDarkText,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false)
+        )
+        IconButton(onClick = onClose, modifier = Modifier.size(26.dp)) {
+            Icon(Icons.Outlined.Close, contentDescription = "Закрыть", tint = FbsNeonGreen, modifier = Modifier.size(17.dp))
+        }
     }
 }
 
@@ -3222,38 +4471,143 @@ private fun FbsAssemblyHeader(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     isLoading: Boolean,
+    compact: Boolean = false,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     subtitle: String
 ) {
-    ModernCard(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)
+    ) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(animationSpec = tween(160)) + expandVertically(expandFrom = Alignment.Top),
+            exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(shrinkTowards = Alignment.Top)
         ) {
-            AppIconActionButton(Icons.AutoMirrored.Outlined.ArrowBack, "Назад", onClick = onBack)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    "Сборка FBS",
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MainTextColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    subtitle,
-                    color = MutedTextColor,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp)
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp)) {
+                    Text(
+                        "Сборка FBS",
+                        fontSize = if (compact) 22.sp else 24.sp,
+                        lineHeight = if (compact) 26.sp else 28.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = FbsDarkText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        subtitle,
+                        color = FbsDarkMutedText,
+                        fontSize = if (compact) 12.sp else 13.sp,
+                        lineHeight = if (compact) 16.sp else 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                OutlinedIconButton(
+                    onClick = { onExpandedChange(false) },
+                    modifier = Modifier.size(if (compact) 42.dp else 46.dp),
+                    shape = RoundedCornerShape(if (compact) 15.dp else 17.dp),
+                    border = BorderStroke(1.dp, FbsDarkBorder)
+                ) {
+                    Icon(
+                        Icons.Outlined.ExpandMore,
+                        contentDescription = "Свернуть верх",
+                        tint = FbsNeonGreen,
+                        modifier = Modifier
+                            .size(if (compact) 23.dp else 25.dp)
+                            .rotate(180f)
+                    )
+                }
+                OutlinedIconButton(
+                    onClick = onRefresh,
+                    modifier = Modifier
+                        .size(if (compact) 58.dp else 72.dp)
+                        .alpha(if (isLoading) 0.55f else 1f),
+                    shape = RoundedCornerShape(if (compact) 20.dp else 24.dp),
+                    border = BorderStroke(1.dp, FbsDarkBorder)
+                ) {
+                    Icon(
+                        Icons.Outlined.FileDownload,
+                        contentDescription = "Обновить заказы",
+                        tint = FbsNeonGreen,
+                        modifier = Modifier.size(if (compact) 30.dp else 38.dp)
+                    )
+                }
             }
-            AppIconActionButton(
-                icon = Icons.Outlined.FileDownload,
+        }
+
+        AnimatedVisibility(
+            visible = !expanded,
+            enter = fadeIn(animationSpec = tween(160)) + expandVertically(expandFrom = Alignment.Top),
+            exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(shrinkTowards = Alignment.Top)
+        ) {
+            FbsAssemblyCollapsedHeader(
+                onExpand = { onExpandedChange(true) },
+                onRefresh = onRefresh,
+                isLoading = isLoading,
+                compact = compact
+            )
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyCollapsedHeader(
+    onExpand: () -> Unit,
+    onRefresh: () -> Unit,
+    isLoading: Boolean,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(if (compact) 18.dp else 22.dp)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(if (compact) 44.dp else 50.dp)
+            .clip(shape)
+            .background(FbsDarkPanelAlt.copy(alpha = 0.96f))
+            .border(1.dp, FbsNeonGreen.copy(alpha = 0.28f), shape)
+            .clickable(onClick = onExpand)
+            .padding(start = 14.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            "Сборка FBS",
+            modifier = Modifier.weight(1f),
+            color = FbsDarkText,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (compact) 15.sp else 16.sp,
+            lineHeight = if (compact) 17.sp else 18.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        IconButton(
+            onClick = onRefresh,
+            modifier = Modifier
+                .size(if (compact) 34.dp else 38.dp)
+                .alpha(if (isLoading) 0.55f else 1f)
+        ) {
+            Icon(
+                Icons.Outlined.FileDownload,
                 contentDescription = "Обновить заказы",
-                primary = true,
-                onClick = onRefresh,
-                modifier = Modifier.alpha(if (isLoading) 0.55f else 1f)
+                tint = FbsNeonGreen,
+                modifier = Modifier.size(if (compact) 20.dp else 22.dp)
+            )
+        }
+        IconButton(onClick = onExpand, modifier = Modifier.size(if (compact) 34.dp else 38.dp)) {
+            Icon(
+                Icons.Outlined.ExpandMore,
+                contentDescription = "Развернуть верх",
+                tint = FbsNeonGreen,
+                modifier = Modifier.size(if (compact) 22.dp else 24.dp)
             )
         }
     }
@@ -3266,73 +4620,267 @@ private fun FbsAssemblyHomeContent(
     onOpenAnalytics: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
+    onModeChange: (FbsAssemblyMode) -> Unit,
     onRefresh: () -> Unit,
     onStart: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LazyColumn(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(bottom = 18.dp)
-    ) {
-        item {
-            FbsAssemblySummaryCard(state)
+    val pendingOrders = remember(state.orders) { fbsAssemblyPendingAssemblyOrders(state.orders) }
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val dense = maxHeight < 690.dp
+        val compact = dense || maxHeight < 790.dp
+        val spacing = when {
+            dense -> 6.dp
+            compact -> 8.dp
+            else -> 10.dp
         }
-        item {
-            FbsAssemblyForecastCard(state)
+        val actionHeight = when {
+            dense -> 56.dp
+            compact -> 62.dp
+            else -> 76.dp
         }
-        item {
-            ModernCard(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+
+        Column(
+            Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(spacing)
+        ) {
+            FbsAssemblyModeSwitch(
+                selected = state.mode,
+                onSelected = onModeChange,
+                enabled = !state.isLoading,
+                compact = compact
+            )
+            FbsAssemblySummaryCard(
+                state = state.copy(orders = pendingOrders),
+                compact = compact,
+                dense = dense
+            )
+            state.planningError?.let { error ->
+                FbsAssemblyErrorCard(message = error, onRetry = onRefresh, compact = compact)
+            } ?: FbsAssemblyForecastCard(
+                state = state,
+                compact = compact,
+                dense = false
+            )
+            Spacer(Modifier.weight(1f))
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 10.dp)
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
                     FbsAssemblyLargeActionButton(
                         text = "Посмотреть весь список заказов",
                         icon = Icons.Outlined.Description,
-                        enabled = state.orders.isNotEmpty() && !state.isLoading,
+                        enabled = state.planningOrders.isNotEmpty() && !state.isLoading,
                         onClick = onOpenList,
-                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                        compact = compact,
+                        modifier = Modifier.weight(1f).height(actionHeight)
                     )
-                    FbsAssemblyLargeActionButton(
+                    FbsAssemblyOutlinedLargeActionButton(
                         text = "Начать сборку",
-                        icon = Icons.Outlined.CheckCircle,
-                        enabled = state.orders.isNotEmpty() && !state.isLoading,
+                        icon = Icons.Outlined.PlayArrow,
+                        enabled = pendingOrders.isNotEmpty() && !state.isLoading,
                         onClick = onStart,
-                        modifier = Modifier.fillMaxWidth().height(58.dp)
-                    )
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppSecondaryButton(
-                            text = "Аналитика",
-                            icon = Icons.Outlined.Analytics,
-                            onClick = onOpenAnalytics,
-                            modifier = Modifier.weight(1f)
-                        )
-                        AppSecondaryButton(
-                            text = "История",
-                            icon = Icons.Outlined.History,
-                            onClick = onOpenHistory,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                    AppSecondaryButton(
-                        text = "Настройки прогноза",
-                        icon = Icons.Outlined.Settings,
-                        onClick = onOpenSettings,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    AppSecondaryButton(
-                        text = "Обновить",
-                        icon = Icons.Outlined.FileDownload,
-                        enabled = !state.isLoading,
-                        onClick = onRefresh,
-                        modifier = Modifier.fillMaxWidth()
+                        compact = compact,
+                        modifier = Modifier.weight(1f).height(actionHeight)
                     )
                 }
+                FbsAssemblyQuickActions(
+                    onOpenAnalytics = onOpenAnalytics,
+                    onOpenHistory = onOpenHistory,
+                    onOpenSettings = onOpenSettings,
+                    onRefresh = onRefresh,
+                    refreshEnabled = !state.isLoading,
+                    compact = compact
+                )
             }
         }
-        item {
-            when {
-                state.isLoading -> FbsAssemblyLoadingCard()
-                state.orders.isEmpty() && state.isLoaded -> FbsAssemblyEmptyCard()
-                state.orders.isEmpty() -> FbsAssemblyLoadingCard()
+    }
+}
+
+@Composable
+private fun FbsAssemblyQuickActions(
+    onOpenAnalytics: () -> Unit,
+    onOpenHistory: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onRefresh: () -> Unit,
+    refreshEnabled: Boolean,
+    compact: Boolean = false
+) {
+    val shape = RoundedCornerShape(if (compact) 18.dp else 22.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        FbsDarkPanelAlt.copy(alpha = 0.98f),
+                        FbsDarkPanel.copy(alpha = 0.97f)
+                    )
+                )
+            )
+            .border(1.dp, FbsNeonGreen.copy(alpha = 0.24f), shape)
+            .padding(horizontal = if (compact) 6.dp else 8.dp, vertical = if (compact) 5.dp else 7.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 7.dp)
+    ) {
+        HorizontalDivider(color = FbsNeonGreen.copy(alpha = 0.18f))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 7.dp)
+        ) {
+            FbsAssemblyQuickActionTile(
+                text = "Аналитика",
+                icon = Icons.Outlined.Analytics,
+                onClick = onOpenAnalytics,
+                compact = compact,
+                active = true,
+                modifier = Modifier.weight(1f)
+            )
+            FbsAssemblyQuickActionTile(
+                text = "История",
+                icon = Icons.Outlined.History,
+                onClick = onOpenHistory,
+                compact = compact,
+                modifier = Modifier.weight(1f)
+            )
+            FbsAssemblyQuickActionTile(
+                text = "Настройки",
+                icon = Icons.Outlined.Settings,
+                onClick = onOpenSettings,
+                compact = compact,
+                modifier = Modifier.weight(1f)
+            )
+            FbsAssemblyQuickActionTile(
+                text = "Обновить",
+                icon = Icons.Outlined.Refresh,
+                enabled = refreshEnabled,
+                onClick = onRefresh,
+                compact = compact,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+@Composable
+private fun FbsAssemblyQuickActionTile(
+    text: String,
+    icon: ImageVector,
+    enabled: Boolean = true,
+    compact: Boolean = false,
+    active: Boolean = false,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val itemColor = if (active) FbsNeonGreen else FbsDarkMutedText
+    Column(
+        modifier = modifier
+            .height(if (compact) 58.dp else 74.dp)
+            .alpha(if (enabled) 1f else 0.48f)
+            .clickable(enabled = enabled, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = itemColor,
+            modifier = Modifier.size(if (compact) 28.dp else 34.dp)
+        )
+        Spacer(Modifier.height(if (compact) 3.dp else 5.dp))
+        Text(
+            text,
+            color = itemColor,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (compact) 11.sp else 13.sp,
+            lineHeight = if (compact) 12.sp else 15.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
+        )
+        if (active) {
+            Spacer(Modifier.height(if (compact) 3.dp else 5.dp))
+            Box(
+                Modifier
+                    .width(if (compact) 44.dp else 58.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(FbsNeonGreen)
+            )
+        } else {
+            Spacer(Modifier.height(if (compact) 6.dp else 8.dp))
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyModeSwitch(
+    selected: FbsAssemblyMode,
+    onSelected: (FbsAssemblyMode) -> Unit,
+    enabled: Boolean,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 18.dp,
+                shape = RoundedCornerShape(if (compact) 18.dp else 24.dp),
+                ambientColor = FbsNeonGreen.copy(alpha = 0.10f),
+                spotColor = FbsNeonGreen.copy(alpha = 0.14f)
+            ),
+        shape = RoundedCornerShape(if (compact) 18.dp else 24.dp),
+        colors = CardDefaults.cardColors(containerColor = FbsDarkPanelAlt),
+        border = BorderStroke(1.dp, FbsDarkBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(if (compact) 6.dp else 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)
+        ) {
+            FbsAssemblyMode.values().forEach { mode ->
+                val isSelected = mode == selected
+                if (isSelected) {
+                    Button(
+                        onClick = { onSelected(mode) },
+                        enabled = enabled,
+                        modifier = Modifier.weight(1f).height(if (compact) 40.dp else 46.dp),
+                        shape = RoundedCornerShape(if (compact) 14.dp else 18.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = FbsNeonGreen, contentColor = Color.Black)
+                    ) {
+                        Text(
+                            mode.title.uppercase(),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = if (compact) 13.sp else 14.sp,
+                            lineHeight = if (compact) 15.sp else 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { onSelected(mode) },
+                        enabled = enabled,
+                        modifier = Modifier.weight(1f).height(if (compact) 40.dp else 46.dp),
+                        shape = RoundedCornerShape(if (compact) 14.dp else 18.dp),
+                        border = BorderStroke(1.dp, Color.Transparent),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.Transparent, contentColor = FbsDarkText)
+                    ) {
+                        Text(
+                            mode.title.uppercase(),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = if (compact) 13.sp else 14.sp,
+                            lineHeight = if (compact) 15.sp else 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         }
     }
@@ -3344,25 +4892,178 @@ private fun FbsAssemblyLargeActionButton(
     icon: ImageVector,
     enabled: Boolean,
     onClick: () -> Unit,
+    compact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val shape = RoundedCornerShape(if (compact) 16.dp else 18.dp)
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier
+            .defaultMinSize(minHeight = if (compact) 54.dp else 68.dp)
+            .alpha(if (enabled) 1f else 0.48f)
+            .shadow(
+                elevation = 12.dp,
+                shape = shape,
+                ambientColor = FbsNeonGreen.copy(alpha = 0.12f),
+                spotColor = FbsNeonGreen.copy(alpha = 0.18f)
+            )
+            .background(Color.Transparent, shape),
+        shape = shape,
+        border = BorderStroke(1.4.dp, FbsNeonGreen),
+        contentPadding = PaddingValues(horizontal = if (compact) 8.dp else 12.dp, vertical = if (compact) 4.dp else 6.dp),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = Color.Transparent,
+            contentColor = FbsDarkText,
+            disabledContainerColor = Color.Transparent,
+            disabledContentColor = FbsDarkText.copy(alpha = 0.62f)
+        )
+    ) {
+        Icon(icon, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(if (compact) 24.dp else 30.dp))
+        Spacer(Modifier.width(if (compact) 7.dp else 10.dp))
+        Text(
+            text,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (compact) 12.sp else 14.sp,
+            lineHeight = if (compact) 15.sp else 18.sp,
+            textAlign = TextAlign.Start,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun FbsAssemblyOutlinedLargeActionButton(
+    text: String,
+    icon: ImageVector,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(if (compact) 16.dp else 18.dp)
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.defaultMinSize(minHeight = 54.dp),
-        shape = RoundedCornerShape(14.dp),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+        modifier = modifier
+            .defaultMinSize(minHeight = if (compact) 54.dp else 68.dp)
+            .alpha(if (enabled) 1f else 0.48f)
+            .shadow(
+                elevation = 18.dp,
+                shape = shape,
+                ambientColor = FbsNeonGreen.copy(alpha = 0.24f),
+                spotColor = FbsNeonGreen.copy(alpha = 0.34f)
+            ),
+        shape = shape,
+        contentPadding = PaddingValues(horizontal = if (compact) 10.dp else 12.dp, vertical = 0.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = FbsNeonGreen,
+            contentColor = Color.Black,
+            disabledContainerColor = FbsNeonGreen.copy(alpha = 0.48f),
+            disabledContentColor = Color.Black.copy(alpha = 0.72f)
+        )
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
-        Spacer(Modifier.width(8.dp))
+        Box(
+            Modifier
+                .size(if (compact) 32.dp else 42.dp)
+                .clip(CircleShape)
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(if (compact) 22.dp else 28.dp))
+        }
+        Spacer(Modifier.width(if (compact) 9.dp else 12.dp))
         Text(
             text,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 14.sp,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (compact) 13.sp else 15.sp,
+            lineHeight = if (compact) 16.sp else 18.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun FbsAssemblyCollectButton(
+    text: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(20.dp)
+    Button(
+        onClick = onClick,
+        modifier = modifier
+            .defaultMinSize(minHeight = if (compact) 64.dp else 70.dp)
+            .height(if (compact) 64.dp else 70.dp)
+            .shadow(
+                elevation = 14.dp,
+                shape = shape,
+                ambientColor = FbsNeonGreen.copy(alpha = 0.24f),
+                spotColor = FbsNeonGreen.copy(alpha = 0.34f)
+            ),
+        shape = shape,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = FbsNeonGreen, contentColor = Color.Black)
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(if (compact) 24.dp else 28.dp))
+        Spacer(Modifier.width(if (compact) 9.dp else 12.dp))
+        Text(
+            text = text,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (compact) 15.sp else 15.sp,
+            lineHeight = if (compact) 18.sp else 19.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun FbsAssemblySecondaryActionButton(
+    text: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(18.dp)
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier
+            .defaultMinSize(minHeight = if (compact) 50.dp else 52.dp)
+            .height(if (compact) 50.dp else 52.dp)
+            .alpha(if (enabled) 1f else 0.45f)
+            .shadow(
+                elevation = 8.dp,
+                shape = shape,
+                ambientColor = FbsNeonGreen.copy(alpha = 0.08f),
+                spotColor = FbsNeonGreen.copy(alpha = 0.12f)
+            ),
+        shape = shape,
+        border = BorderStroke(1.dp, FbsDarkBorder),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+        colors = ButtonDefaults.outlinedButtonColors(
+            containerColor = FbsDarkPanel,
+            contentColor = FbsDarkText
+        )
+    ) {
+        Icon(icon, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(7.dp))
+        Text(
+            text = text,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
             lineHeight = 16.sp,
             textAlign = TextAlign.Center,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
     }
@@ -3380,22 +5081,27 @@ private fun FbsAssemblyOrderListContent(
         contentPadding = PaddingValues(bottom = 18.dp)
     ) {
         item {
-            FbsAssemblySummaryCard(state)
+            FbsAssemblySummaryCard(state.copy(orders = state.planningOrders), compact = false)
         }
         item {
-            AppPrimaryButton(
+            FbsAssemblySecondaryActionButton(
                 text = "Обновить",
                 icon = Icons.Outlined.FileDownload,
-                enabled = !state.isLoading,
                 onClick = onRefresh,
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        if (state.orders.isEmpty()) {
+        if (state.planningError != null) {
+            item { FbsAssemblyErrorCard(message = state.planningError, onRetry = onRefresh) }
+        } else if (state.planningOrders.isEmpty()) {
             item { FbsAssemblyEmptyCard() }
         } else {
-            items(state.orders, key = { it.orderNumber }) { order ->
-                FbsAssemblyOrderCard(order = order, large = false)
+            items(state.planningOrders, key = { it.orderNumber }) { order ->
+                FbsAssemblyOrderCard(
+                    order = order,
+                    large = false,
+                    showMultiPositionWarning = fbsAssemblyShowMultiPositionWarning(order)
+                )
             }
         }
     }
@@ -3405,64 +5111,59 @@ private fun FbsAssemblyOrderListContent(
 private fun FbsAssemblyWorkContent(
     state: FbsAssemblyUiState,
     onCollect: () -> Unit,
-    onScanLabel: () -> Unit,
+    onPrintLabel: () -> Unit,
     onSkip: () -> Unit,
     onRestart: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val now by produceState(initialValue = LocalDateTime.now()) {
-        while (true) {
-            value = LocalDateTime.now()
-            delay(1_000)
-        }
-    }
-    val currentOrder = state.currentOrder
+    val now = rememberCurrentDateTime(refreshIntervalMillis = 1_000)
+    val currentOrder = remember(state.orders, state.currentOrderNumber) { state.currentOrder }
 
     if (state.isFinished) {
         FbsAssemblyFinishContent(state = state, onRestart = onRestart, onReload = onRestart, modifier = modifier)
         return
     }
 
-    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FbsAssemblyProgressPanel(state = state, now = now)
-        if (currentOrder == null) {
-            FbsAssemblyEmptyCard(
-                title = "Нет текущего заказа",
-                text = "Нажмите «Начать сборку» на стартовом экране или обновите список заказов."
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 4.dp)
-            ) {
-                item {
-                    FbsAssemblyOrderCard(order = currentOrder, large = true)
-                }
-            }
-            ModernCard(Modifier.fillMaxWidth()) {
-                Column(
-                    Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    AppPrimaryButton(
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val dense = maxHeight < 600.dp
+        val compact = maxHeight < 760.dp
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(if (dense) 6.dp else 9.dp)) {
+            FbsAssemblyProgressPanel(state = state, now = now, compact = compact, prominent = true)
+            if (currentOrder == null) {
+                FbsAssemblyEmptyCard(
+                    title = "Нет текущего заказа",
+                    text = "Нажмите «Начать сборку» на стартовом экране или обновите список заказов."
+                )
+            } else {
+                FbsAssemblyActiveOrderCard(
+                    order = currentOrder,
+                    compact = compact,
+                    dense = dense,
+                    showMultiPositionWarning = fbsAssemblyShowMultiPositionWarning(currentOrder),
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(if (dense) 6.dp else 8.dp)) {
+                    FbsAssemblyCollectButton(
                         text = "Заказ собран",
                         icon = Icons.Outlined.CheckCircle,
                         onClick = onCollect,
-                        modifier = Modifier.fillMaxWidth().height(56.dp)
+                        compact = compact,
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        AppSecondaryButton(
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FbsAssemblySecondaryActionButton(
+                            text = "Печать",
+                            icon = Icons.Outlined.Print,
+                            onClick = onPrintLabel,
+                            compact = compact,
+                            modifier = Modifier.weight(1f)
+                        )
+                        FbsAssemblySecondaryActionButton(
                             text = "Пропустить",
                             icon = Icons.Outlined.Archive,
                             onClick = onSkip,
-                            modifier = Modifier.weight(1f).height(52.dp)
-                        )
-                        AppSecondaryButton(
-                            text = "Скан этикетки",
-                            icon = Icons.Outlined.QrCodeScanner,
-                            onClick = onScanLabel,
-                            modifier = Modifier.weight(1f).height(52.dp)
+                            compact = compact,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
@@ -3479,48 +5180,77 @@ private fun FbsAssemblyFinishContent(
     modifier: Modifier = Modifier
 ) {
     val finishedInTime = fbsAssemblyFinishedInTime(state.finishedAtMillis, state.settings.deadlineTime)
+    val metrics = remember(state.orders) { calculateFbsAssemblyOrderMetrics(state.orders) }
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 18.dp)
     ) {
         item {
-            ModernCard(Modifier.fillMaxWidth()) {
+            FbsAssemblyDarkCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp)) {
                 Column(
                     Modifier.padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    AppIconBubble(
-                        icon = Icons.Outlined.CheckCircle,
-                        tint = SuccessColor,
-                        background = Color(0xFFE9F8EF),
-                        modifier = Modifier.size(64.dp)
+                    Box(
+                        Modifier
+                            .size(70.dp)
+                            .clip(CircleShape)
+                            .background(FbsNeonGreen.copy(alpha = 0.14f))
+                            .border(2.dp, FbsNeonGreen, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(42.dp))
+                    }
+                    Text(
+                        "Сборка завершена",
+                        color = FbsDarkText,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 19.sp,
+                        lineHeight = 22.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Text("Сборка завершена", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, textAlign = TextAlign.Center)
-                    StatusBadge(
-                        text = if (finishedInTime) "Завершено вовремя" else "Завершено с опозданием",
-                        tone = if (finishedInTime) BadgeTone.Green else BadgeTone.Purple
-                    )
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(FbsNeonGreen.copy(alpha = 0.12f))
+                            .border(1.dp, FbsNeonGreen.copy(alpha = 0.55f), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            if (finishedInTime) "Завершено вовремя" else "Завершено с опозданием",
+                            color = FbsNeonGreen,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp
+                        )
+                    }
                     Column(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(18.dp))
-                            .background(Color(0xFFF7F9FF))
-                            .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+                            .background(FbsDarkPanelAlt.copy(alpha = 0.74f))
+                            .border(1.dp, FbsDarkBorder, RoundedCornerShape(18.dp))
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        FbsAssemblyInfoLine("Всего заказов", state.totalOrders.toString())
-                        FbsAssemblyInfoLine("Собрано", state.collectedOrders.toString())
-                        FbsAssemblyInfoLine("Канистр", state.canisterCount.toString())
-                        FbsAssemblyInfoLine("Время начала", formatFbsAssemblyTime(state.startedAtMillis))
-                        FbsAssemblyInfoLine("Время окончания", formatFbsAssemblyTime(state.finishedAtMillis))
-                        FbsAssemblyInfoLine("Общее время сборки", formatFbsAssemblyDuration(state.startedAtMillis, state.finishedAtMillis))
+                        FbsAssemblyDarkInfoLine("Всего заказов", metrics.totalOrders.toString())
+                        HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.78f))
+                        FbsAssemblyDarkInfoLine("Собрано", metrics.collectedOrders.toString())
+                        HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.78f))
+                        FbsAssemblyDarkInfoLine("Канистр", metrics.canisterCount.toString())
+                        HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.78f))
+                        FbsAssemblyDarkInfoLine("Время начала", formatFbsAssemblyTime(state.startedAtMillis))
+                        HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.78f))
+                        FbsAssemblyDarkInfoLine("Время окончания", formatFbsAssemblyTime(state.finishedAtMillis))
+                        HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.78f))
+                        FbsAssemblyDarkInfoLine("Общее время сборки", formatFbsAssemblyDuration(state.startedAtMillis, state.finishedAtMillis))
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        AppSecondaryButton("Начать заново", icon = Icons.Outlined.Edit, onClick = onRestart, modifier = Modifier.weight(1f))
-                        AppPrimaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, onClick = onReload, modifier = Modifier.weight(1f))
+                        FbsAssemblyLargeActionButton("Начать заново", icon = Icons.Outlined.Edit, enabled = true, onClick = onRestart, compact = true, modifier = Modifier.weight(1f).height(58.dp))
+                        FbsAssemblyOutlinedLargeActionButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = true, onClick = onReload, compact = true, modifier = Modifier.weight(1f).height(58.dp))
                     }
                 }
             }
@@ -3529,16 +5259,27 @@ private fun FbsAssemblyFinishContent(
 }
 
 @Composable
-private fun FbsAssemblyForecastCard(state: FbsAssemblyUiState, modifier: Modifier = Modifier) {
-    val now by produceState(initialValue = LocalDateTime.now()) {
-        while (true) {
-            value = LocalDateTime.now()
-            delay(30_000)
-        }
+private fun FbsAssemblyForecastCard(
+    state: FbsAssemblyUiState,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false,
+    dense: Boolean = false,
+    nowOverride: LocalDateTime? = null
+) {
+    val tickingNow = rememberCurrentDateTime(
+        refreshIntervalMillis = 30_000,
+        enabled = nowOverride == null
+    )
+    val now = nowOverride ?: tickingNow
+    val forecastOrders = fbsAssemblyForecastSourceOrders(state)
+    val metrics = remember(forecastOrders) { calculateFbsAssemblyOrderMetrics(forecastOrders) }
+    val stats = remember(state.history, state.settings, now.toLocalDate()) {
+        calculateFbsAssemblyHistoryStats(state.history, state.settings)
     }
-    val stats = calculateFbsAssemblyHistoryStats(state.history, state.settings)
-    val averageSeconds = fbsAssemblyEffectivePaceSeconds(state, stats)
-    val ordersToAssemble = if (state.isStarted) state.remainingOrders else state.totalOrders
+    val averageSeconds = remember(state.history, state.startedAtMillis, stats) {
+        fbsAssemblyEffectivePaceSeconds(state, stats)
+    }
+    val ordersToAssemble = if (state.isStarted) metrics.remainingOrders else metrics.totalOrders
     val forecast = calculateFbsAssemblyForecast(
         ordersToAssemble = ordersToAssemble,
         averageSecondsPerOrder = averageSeconds,
@@ -3546,35 +5287,80 @@ private fun FbsAssemblyForecastCard(state: FbsAssemblyUiState, modifier: Modifie
         now = now
     )
 
-    ModernCard(modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppIconBubble(
-                    icon = if (forecast.risk == FbsAssemblyRisk.ENOUGH) Icons.Outlined.AccessTime else Icons.Outlined.WarningAmber,
-                    tint = fbsAssemblyForecastColor(forecast.risk),
-                    background = fbsAssemblyForecastColor(forecast.risk).copy(alpha = 0.10f),
-                    modifier = Modifier.size(46.dp)
-                )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 20.dp,
+                shape = RoundedCornerShape(if (compact) 24.dp else 28.dp),
+                ambientColor = Color.Black.copy(alpha = 0.58f),
+                spotColor = FbsNeonGreen.copy(alpha = 0.10f)
+            ),
+        shape = RoundedCornerShape(if (compact) 24.dp else 28.dp),
+        colors = CardDefaults.cardColors(containerColor = FbsDarkPanel.copy(alpha = 0.98f)),
+        border = BorderStroke(1.dp, FbsDarkBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            Modifier.padding(horizontal = if (compact) 12.dp else 18.dp, vertical = if (compact) 12.dp else 18.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
+                Box(
+                    Modifier
+                        .size(if (compact) 34.dp else 44.dp)
+                        .clip(CircleShape)
+                        .background(FbsNeonGreen.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (forecast.risk == FbsAssemblyRisk.ENOUGH) Icons.Outlined.AccessTime else Icons.Outlined.WarningAmber,
+                        contentDescription = null,
+                        tint = FbsNeonGreen,
+                        modifier = Modifier.size(if (compact) 22.dp else 28.dp)
+                    )
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                     Text(
                         if (state.isStarted) "Прогноз завершения" else "Прогноз сборки",
-                        color = MainTextColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
-                    Text(
-                        if (stats.usesDefaultAverage) {
-                            "Истории мало: ${stats.collectedCount}/${state.settings.minOrdersForAnalytics}, берём базовое время"
-                        } else {
-                            "Среднее время рассчитано по истории сборки"
-                        },
-                        color = MutedTextColor,
-                        fontSize = 13.sp,
+                        color = FbsDarkText,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = if (compact) 14.sp else 16.sp,
+                        lineHeight = if (compact) 17.sp else 19.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (!dense) {
+                        Text(
+                            if (stats.usesDefaultAverage) {
+                                "Истории мало: ${stats.collectedCount}/${state.settings.minOrdersForAnalytics}, берём базовое время"
+                            } else {
+                                "Среднее время рассчитано по истории сборки"
+                            },
+                            color = FbsDarkMutedText,
+                            fontSize = if (compact) 10.sp else 11.sp,
+                            lineHeight = if (compact) 13.sp else 14.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
-                StatusBadge(state.settings.deadlineTime, tone = if (forecast.risk == FbsAssemblyRisk.ENOUGH) BadgeTone.Green else BadgeTone.Purple)
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(if (compact) 13.dp else 16.dp))
+                        .background(FbsNeonGreen.copy(alpha = 0.10f))
+                        .border(1.dp, FbsNeonGreen.copy(alpha = 0.80f), RoundedCornerShape(if (compact) 13.dp else 16.dp))
+                        .padding(horizontal = if (compact) 9.dp else 12.dp, vertical = if (compact) 6.dp else 8.dp)
+                ) {
+                    Text(
+                        state.settings.deadlineTime,
+                        color = FbsNeonGreen,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = if (compact) 12.sp else 13.sp,
+                        lineHeight = if (compact) 15.sp else 16.sp,
+                        maxLines = 1
+                    )
+                }
             }
 
             FbsAssemblyMetricGrid(
@@ -3583,77 +5369,147 @@ private fun FbsAssemblyForecastCard(state: FbsAssemblyUiState, modifier: Modifie
                 secondTitle = "На заказ",
                 secondValue = formatFbsAssemblyShortDuration(averageSeconds),
                 thirdTitle = "Запас",
-                thirdValue = formatFbsAssemblyShortDuration(forecast.reserveSeconds)
+                thirdValue = formatFbsAssemblyShortDuration(forecast.reserveSeconds),
+                compact = compact || dense,
+                dark = true
             )
 
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(Color(0xFFF7F9FF))
-                    .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                FbsAssemblyInfoLine("Примерно без запаса", formatFbsAssemblyShortDuration(forecast.forecastSeconds))
-                FbsAssemblyInfoLine("С учётом запаса", formatFbsAssemblyShortDuration(forecast.totalSeconds))
-                if (state.isStarted) {
-                    FbsAssemblyInfoLine("Прогноз завершения", formatFbsAssemblyLocalTime(forecast.projectedFinish))
-                } else {
-                    FbsAssemblyInfoLine("Начать не позже", formatFbsAssemblyLocalTime(forecast.recommendedStart))
+            if (!dense) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(if (compact) 15.dp else 18.dp))
+                        .background(FbsDarkPanelAlt.copy(alpha = 0.72f))
+                        .border(1.dp, FbsDarkBorder, RoundedCornerShape(if (compact) 15.dp else 18.dp))
+                        .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 9.dp else 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 10.dp)
+                ) {
+                    FbsAssemblyDarkInfoLine("Примерно без запаса", formatFbsAssemblyShortDuration(forecast.forecastSeconds), compact)
+                    HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.78f))
+                    FbsAssemblyDarkInfoLine("С учётом запаса", formatFbsAssemblyShortDuration(forecast.totalSeconds), compact)
+                    HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.78f))
+                    if (state.isStarted) {
+                        FbsAssemblyDarkInfoLine("Прогноз завершения", formatFbsAssemblyLocalTime(forecast.projectedFinish), compact)
+                    } else {
+                        FbsAssemblyDarkInfoLine("Начать не позже", formatFbsAssemblyLocalTime(forecast.recommendedStart), compact)
+                    }
                 }
-            }
 
-            FbsAssemblyForecastNotice(forecast = forecast, isStarted = state.isStarted)
+                FbsAssemblyForecastNotice(forecast = forecast, isStarted = state.isStarted, compact = compact)
+            }
         }
     }
 }
 
 @Composable
-private fun FbsAssemblyForecastNotice(forecast: FbsAssemblyForecast, isStarted: Boolean) {
-    val color = fbsAssemblyForecastColor(forecast.risk)
+private fun FbsAssemblyForecastNotice(forecast: FbsAssemblyForecast, isStarted: Boolean, compact: Boolean = false) {
+    val color = FbsNeonGreen
     val text = when (forecast.risk) {
         FbsAssemblyRisk.ENOUGH -> if (forecast.ordersToAssemble == 0) {
-            "Текущие заказы уже собраны."
+            "Сейчас нет заказов к сборке. Список обновляется автоматически."
         } else if (isStarted) {
             "Времени достаточно. Прогноз завершения: ${formatFbsAssemblyLocalTime(forecast.projectedFinish)}."
         } else {
-            "Времени достаточно. Рекомендуем начать не позже ${formatFbsAssemblyLocalTime(forecast.recommendedStart)}."
+            "Времени достаточно. Начать не позже ${formatFbsAssemblyLocalTime(forecast.recommendedStart)}."
         }
         FbsAssemblyRisk.START_SOON ->
-            "Рекомендуем начать сборку сейчас, чтобы успеть закончить до ${formatFbsAssemblyLocalTime(forecast.deadline)}."
+            "Начните сейчас, чтобы успеть до ${formatFbsAssemblyLocalTime(forecast.deadline)}."
         FbsAssemblyRisk.LATE ->
-            "Есть риск не успеть к ${formatFbsAssemblyLocalTime(forecast.deadline)}. Рекомендуем начать немедленно."
+            "Есть риск опоздать к ${formatFbsAssemblyLocalTime(forecast.deadline)}. Начните немедленно."
         FbsAssemblyRisk.NOT_ENOUGH_TIME ->
-            "По текущему прогнозу можно не успеть к ${formatFbsAssemblyLocalTime(forecast.deadline)}. " +
-                "Осталось ${formatFbsAssemblyShortDuration(forecast.secondsUntilDeadline.coerceAtLeast(0L))}, " +
+            "Риск дедлайна: осталось ${formatFbsAssemblyShortDuration(forecast.secondsUntilDeadline.coerceAtLeast(0L))}, " +
                 "нужно ${formatFbsAssemblyShortDuration(forecast.totalSeconds)}, " +
                 "не хватает ${formatFbsAssemblyShortDuration(forecast.missingSeconds)}."
     }
     Box(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(color.copy(alpha = 0.10f))
-            .border(1.dp, color.copy(alpha = 0.26f), RoundedCornerShape(18.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(if (compact) 16.dp else 20.dp))
+            .background(color.copy(alpha = 0.11f))
+            .border(1.dp, color.copy(alpha = 0.55f), RoundedCornerShape(if (compact) 16.dp else 20.dp))
+            .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 9.dp else 12.dp)
     ) {
-        Text(text, color = color, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 18.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
+            Box(
+                Modifier
+                    .size(if (compact) 28.dp else 36.dp)
+                    .clip(CircleShape)
+                    .border(2.dp, color, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = color, modifier = Modifier.size(if (compact) 18.dp else 23.dp))
+            }
+            Text(
+                text,
+                color = color,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = if (compact) 11.sp else 12.sp,
+                lineHeight = if (compact) 14.sp else 15.sp,
+                maxLines = if (compact) 3 else 4,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
 @Composable
-private fun FbsAssemblyAnalyticsContent(state: FbsAssemblyUiState, modifier: Modifier = Modifier) {
-    val now by produceState(initialValue = LocalDateTime.now()) {
-        while (true) {
-            value = LocalDateTime.now()
-            delay(30_000)
-        }
+private fun FbsAssemblyDarkInfoLine(title: String, value: String, compact: Boolean = false) {
+    val displayValue = keepFbsAssemblyDurationOnOneLine(value)
+    val durationValue = displayValue != value
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            title,
+            color = FbsDarkMutedText,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (compact) 11.sp else 12.sp,
+            lineHeight = if (compact) 14.sp else 15.sp,
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            displayValue,
+            color = FbsDarkText,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (compact) 11.sp else 12.sp,
+            lineHeight = if (compact) 14.sp else 15.sp,
+            maxLines = if (durationValue) 1 else 2,
+            softWrap = !durationValue,
+            overflow = TextOverflow.Ellipsis
+        )
     }
-    val stats = calculateFbsAssemblyHistoryStats(state.history, state.settings)
-    val averageSeconds = fbsAssemblyEffectivePaceSeconds(state, stats)
+}
+
+@Composable
+private fun FbsAssemblyAnalyticsContent(
+    state: FbsAssemblyUiState,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val planningError = state.planningError
+    if (planningError != null) {
+        Column(modifier.fillMaxWidth()) {
+            FbsAssemblyErrorCard(message = planningError, onRetry = onRefresh)
+        }
+        return
+    }
+
+    val now = rememberCurrentDateTime(refreshIntervalMillis = 30_000)
+    val forecastOrders = fbsAssemblyForecastSourceOrders(state)
+    val metrics = remember(forecastOrders) { calculateFbsAssemblyOrderMetrics(forecastOrders) }
+    val stats = remember(state.history, state.settings, now.toLocalDate()) {
+        calculateFbsAssemblyHistoryStats(state.history, state.settings)
+    }
+    val averageSeconds = remember(state.history, state.startedAtMillis, stats) {
+        fbsAssemblyEffectivePaceSeconds(state, stats)
+    }
     val forecast = calculateFbsAssemblyForecast(
-        ordersToAssemble = if (state.isStarted) state.remainingOrders else state.totalOrders,
+        ordersToAssemble = if (state.isStarted) metrics.remainingOrders else metrics.totalOrders,
         averageSecondsPerOrder = averageSeconds,
         settings = state.settings,
         now = now
@@ -3665,29 +5521,29 @@ private fun FbsAssemblyAnalyticsContent(state: FbsAssemblyUiState, modifier: Mod
         contentPadding = PaddingValues(bottom = 18.dp)
     ) {
         item {
-            ModernCard(Modifier.fillMaxWidth()) {
+            FbsAssemblyDarkCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        AppIconBubble(Icons.Outlined.Analytics, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(48.dp))
+                        AppIconBubble(Icons.Outlined.Analytics, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f), modifier = Modifier.size(48.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("Аналитика сборки", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                            Text("Только заказы со статусом «Собран» влияют на среднее время", color = MutedTextColor, fontSize = 13.sp)
+                        Text("Аналитика сборки", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("Только заказы со статусом «Собран» влияют на среднее время", color = FbsDarkMutedText, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    FbsAssemblyInfoLine("Сегодня собрано", "${stats.collectedToday} заказов")
-                    FbsAssemblyInfoLine("Среднее время на заказ", formatFbsAssemblyShortDuration(stats.averageSecondsPerOrder))
-                    FbsAssemblyInfoLine("Общее время сегодня", formatFbsAssemblyShortDuration(stats.totalSecondsToday))
-                    FbsAssemblyInfoLine("Самый быстрый заказ", formatFbsAssemblyShortDuration(stats.fastestSeconds))
-                    FbsAssemblyInfoLine("Самый долгий заказ", formatFbsAssemblyShortDuration(stats.slowestSeconds))
-                    FbsAssemblyInfoLine("Проблемных/пропущенных", stats.problemOrders.toString())
-                    FbsAssemblyInfoLine("Осталось собрать", "${forecast.ordersToAssemble} заказов")
-                    FbsAssemblyInfoLine("Примерное время", formatFbsAssemblyShortDuration(forecast.totalSeconds))
-                    FbsAssemblyInfoLine("Начать не позже", formatFbsAssemblyLocalTime(forecast.recommendedStart))
+                    FbsAssemblyDarkInfoLine("Сегодня собрано", "${stats.collectedToday} заказов")
+                    FbsAssemblyDarkInfoLine("Среднее время на заказ", formatFbsAssemblyShortDuration(stats.averageSecondsPerOrder))
+                    FbsAssemblyDarkInfoLine("Общее время сегодня", formatFbsAssemblyShortDuration(stats.totalSecondsToday))
+                    FbsAssemblyDarkInfoLine("Самый быстрый заказ", formatFbsAssemblyShortDuration(stats.fastestSeconds))
+                    FbsAssemblyDarkInfoLine("Самый долгий заказ", formatFbsAssemblyShortDuration(stats.slowestSeconds))
+                    FbsAssemblyDarkInfoLine("Проблемных/пропущенных", stats.problemOrders.toString())
+                    FbsAssemblyDarkInfoLine("Осталось собрать", "${forecast.ordersToAssemble} заказов")
+                    FbsAssemblyDarkInfoLine("Примерное время", formatFbsAssemblyShortDuration(forecast.totalSeconds))
+                    FbsAssemblyDarkInfoLine("Начать не позже", formatFbsAssemblyLocalTime(forecast.recommendedStart))
                 }
             }
         }
         item {
-            FbsAssemblyForecastCard(state)
+            FbsAssemblyForecastCard(state, nowOverride = now)
         }
     }
 }
@@ -3716,7 +5572,7 @@ private fun FbsAssemblyHistoryContent(state: FbsAssemblyUiState, modifier: Modif
 
 @Composable
 private fun FbsAssemblyHistoryCard(entry: FbsAssemblyHistoryEntry) {
-    ModernCard(Modifier.fillMaxWidth()) {
+    FbsAssemblyDarkCard(Modifier.fillMaxWidth()) {
         Row(
             Modifier.padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -3730,8 +5586,24 @@ private fun FbsAssemblyHistoryCard(entry: FbsAssemblyHistoryEntry) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Заказ №${entry.orderNumber}", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(entry.productName, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "Заказ №${entry.orderNumber}",
+                            color = FbsDarkText,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.sp,
+                            lineHeight = 17.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            entry.productName,
+                            color = FbsDarkText,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp,
+                            lineHeight = 15.sp,
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                     FbsAssemblyStatusBadge(entry.status)
                 }
@@ -3739,18 +5611,18 @@ private fun FbsAssemblyHistoryCard(entry: FbsAssemblyHistoryEntry) {
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFFF8FAFF))
-                        .border(1.dp, CardBorderColor.copy(alpha = 0.68f), RoundedCornerShape(14.dp))
+                        .background(FbsDarkPanelAlt.copy(alpha = 0.72f))
+                        .border(1.dp, FbsDarkBorder, RoundedCornerShape(14.dp))
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    FbsAssemblyInfoLine("Количество", "${entry.quantity} шт.")
-                    FbsAssemblyInfoLine("Дата", formatFbsAssemblyDate(entry.createdAt))
-                    FbsAssemblyInfoLine("Начало", formatFbsAssemblyTime(entry.startedAt))
-                    FbsAssemblyInfoLine("Завершение", formatFbsAssemblyTime(entry.finishedAt))
-                    FbsAssemblyInfoLine("Время сборки", formatFbsAssemblyShortDuration(entry.durationSeconds))
+                    FbsAssemblyDarkInfoLine("Количество", "${entry.quantity} шт.", compact = true)
+                    FbsAssemblyDarkInfoLine("Дата", formatFbsAssemblyDate(entry.createdAt), compact = true)
+                    FbsAssemblyDarkInfoLine("Начало", formatFbsAssemblyTime(entry.startedAt), compact = true)
+                    FbsAssemblyDarkInfoLine("Завершение", formatFbsAssemblyTime(entry.finishedAt), compact = true)
+                    FbsAssemblyDarkInfoLine("Время сборки", formatFbsAssemblyShortDuration(entry.durationSeconds), compact = true)
                     entry.problemReason?.takeIf { it.isNotBlank() }?.let { reason ->
-                        FbsAssemblyInfoLine("Причина", reason)
+                        FbsAssemblyDarkInfoLine("Причина", reason, compact = true)
                     }
                 }
             }
@@ -3761,7 +5633,25 @@ private fun FbsAssemblyHistoryCard(entry: FbsAssemblyHistoryEntry) {
 @Composable
 private fun FbsAssemblySettingsContent(
     settings: AssemblyForecastSettings,
+    notificationStatus: String,
+    onSendTestNotification: () -> Unit,
+    onOpenNotificationSettings: () -> Unit,
+    labelServerHost: String,
+    onLabelServerHostChange: (String) -> Unit,
+    onPrintLabelTest: () -> Unit,
+    usbDirectPrintEnabled: Boolean,
+    usbRawPdfEnabled: Boolean,
+    usbPrinterStatus: String,
+    usbPrintOffsetMm: String,
+    onUsbDirectPrintEnabledChange: (Boolean) -> Unit,
+    onUsbRawPdfEnabledChange: (Boolean) -> Unit,
+    onUsbPrintOffsetMmChange: (String) -> Unit,
+    onSaveUsbPrintOffset: () -> Unit,
+    onResetUsbPrintOffset: () -> Unit,
+    onPrintUsbTest: () -> Unit,
+    onRefreshUsbStatus: () -> Unit,
     onSave: (AssemblyForecastSettings) -> Unit,
+    onResetData: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var deadline by rememberSaveable { mutableStateOf(settings.deadlineTime) }
@@ -3782,16 +5672,16 @@ private fun FbsAssemblySettingsContent(
         contentPadding = PaddingValues(bottom = 18.dp)
     ) {
         item {
-            ModernCard(Modifier.fillMaxWidth()) {
+            FbsAssemblyDarkCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        AppIconBubble(Icons.Outlined.Settings, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(48.dp))
+                        AppIconBubble(Icons.Outlined.Settings, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f), modifier = Modifier.size(48.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("Настройки прогноза", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                            Text("Значения применяются к блоку прогноза и аналитике", color = MutedTextColor, fontSize = 13.sp)
+                            Text("Настройки", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("Прогноз, печать и локальные данные FBS", color = FbsDarkMutedText, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
-                    ModernTextField(
+                    FbsAssemblyTextField(
                         value = deadline,
                         onValueChange = { deadline = it.take(5) },
                         label = "Время окончания сборки",
@@ -3799,7 +5689,7 @@ private fun FbsAssemblySettingsContent(
                         leadingIcon = Icons.Outlined.AccessTime,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    ModernTextField(
+                    FbsAssemblyTextField(
                         value = reservePercent,
                         onValueChange = { reservePercent = it.filter(Char::isDigit).take(3) },
                         label = "Запас времени, %",
@@ -3807,7 +5697,7 @@ private fun FbsAssemblySettingsContent(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    ModernTextField(
+                    FbsAssemblyTextField(
                         value = defaultMinutes,
                         onValueChange = { defaultMinutes = it.filter(Char::isDigit).take(4) },
                         label = "Базовое время на заказ, мин",
@@ -3815,7 +5705,7 @@ private fun FbsAssemblySettingsContent(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    ModernTextField(
+                    FbsAssemblyTextField(
                         value = minOrders,
                         onValueChange = { minOrders = it.filter(Char::isDigit).take(4) },
                         label = "Минимум заказов для аналитики",
@@ -3823,9 +5713,10 @@ private fun FbsAssemblySettingsContent(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
-                    AppPrimaryButton(
+                    FbsAssemblyOutlinedLargeActionButton(
                         text = "Сохранить настройки",
                         icon = Icons.Outlined.CheckCircle,
+                        enabled = true,
                         onClick = {
                             onSave(
                                 AssemblyForecastSettings(
@@ -3836,6 +5727,133 @@ private fun FbsAssemblySettingsContent(
                                 )
                             )
                         },
+                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                    )
+                    HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.82f))
+                    FbsAssemblyLargeActionButton(
+                        text = "Сбросить данные",
+                        icon = Icons.Outlined.Delete,
+                        enabled = true,
+                        onClick = onResetData,
+                        compact = true,
+                        modifier = Modifier.fillMaxWidth().height(54.dp)
+                    )
+                }
+            }
+        }
+        item {
+            FbsAssemblyDarkCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AppIconBubble(Icons.Outlined.NotificationsActive, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f), modifier = Modifier.size(48.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Уведомления телефона", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("Работают и когда экран сборки закрыт", color = FbsDarkMutedText, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    FbsAssemblyDarkInfoLine("Новый заказ", "проверка примерно каждые 15 минут", compact = true)
+                    FbsAssemblyDarkInfoLine("Проверка товара", "за 1,5 часа до ${settings.deadlineTime}", compact = true)
+                    FbsAssemblyDarkInfoLine("Статус", notificationStatus, compact = true)
+                    Text(
+                        "Если статус не «Включены», откройте настройки Android и разрешите уведомления для канала новых заказов.",
+                        color = FbsDarkMutedText,
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FbsAssemblySecondaryActionButton(
+                            text = "Тест",
+                            icon = Icons.Outlined.NotificationsActive,
+                            onClick = onSendTestNotification,
+                            modifier = Modifier.weight(1f)
+                        )
+                        FbsAssemblySecondaryActionButton(
+                            text = "Настройки",
+                            icon = Icons.Outlined.Settings,
+                            onClick = onOpenNotificationSettings,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            FbsAssemblyDarkCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        AppIconBubble(Icons.Outlined.Print, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f), modifier = Modifier.size(48.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Печать этикеток", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("Ozon Label Print Server", color = FbsDarkMutedText, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    FbsAssemblyTextField(
+                        value = labelServerHost,
+                        onValueChange = onLabelServerHostChange,
+                        label = "IP сервера этикеток",
+                        placeholder = "192.168.10.107",
+                        leadingIcon = Icons.Outlined.Print,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.82f))
+                    FbsAssemblyDarkInfoLine("OTG-принтер", usbPrinterStatus, compact = true)
+                    FbsAssemblySettingsSwitchRow(
+                        title = "Авто OTG-принтер",
+                        subtitle = "Если принтер подключён к телефону кабелем, печать сначала идёт на него",
+                        checked = usbDirectPrintEnabled,
+                        onCheckedChange = onUsbDirectPrintEnabledChange
+                    )
+                    FbsAssemblySettingsSwitchRow(
+                        title = "PDF Ozon через OTG",
+                        subtitle = "PDF-этикетки конвертируются в TSPL перед отправкой на USB-принтер",
+                        checked = usbRawPdfEnabled,
+                        enabled = usbDirectPrintEnabled,
+                        onCheckedChange = onUsbRawPdfEnabledChange
+                    )
+                    FbsAssemblyTextField(
+                        value = usbPrintOffsetMm,
+                        onValueChange = onUsbPrintOffsetMmChange,
+                        label = "Смещение печати, мм",
+                        placeholder = "5.0",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        leadingIcon = Icons.Outlined.Settings,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FbsAssemblySecondaryActionButton(
+                            text = "Сохранить смещение",
+                            icon = Icons.Outlined.CheckCircle,
+                            enabled = usbDirectPrintEnabled,
+                            onClick = onSaveUsbPrintOffset,
+                            modifier = Modifier.weight(1.25f)
+                        )
+                        FbsAssemblySecondaryActionButton(
+                            text = "5.0 мм",
+                            icon = Icons.Outlined.Close,
+                            enabled = usbDirectPrintEnabled,
+                            onClick = onResetUsbPrintOffset,
+                            modifier = Modifier.weight(0.75f)
+                        )
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FbsAssemblySecondaryActionButton(
+                            text = "Обновить OTG",
+                            icon = Icons.Outlined.Search,
+                            onClick = onRefreshUsbStatus,
+                            modifier = Modifier.weight(1f)
+                        )
+                        FbsAssemblySecondaryActionButton(
+                            text = "Тест OTG",
+                            icon = Icons.Outlined.Print,
+                            enabled = usbDirectPrintEnabled,
+                            onClick = onPrintUsbTest,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    FbsAssemblySecondaryActionButton(
+                        text = "Тест печати",
+                        icon = Icons.Outlined.Print,
+                        onClick = onPrintLabelTest,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
@@ -3845,57 +5863,276 @@ private fun FbsAssemblySettingsContent(
 }
 
 @Composable
-private fun FbsAssemblySummaryCard(state: FbsAssemblyUiState) {
-    ModernCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppIconBubble(Icons.Outlined.Inventory2, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(46.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Заказы к сборке", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+private fun FbsAssemblySettingsSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.5f)
+            .clip(RoundedCornerShape(16.dp))
+            .background(FbsDarkPanelAlt.copy(alpha = 0.74f))
+            .border(1.dp, FbsDarkBorder, RoundedCornerShape(16.dp))
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = FbsDarkMutedText, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        Switch(
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+@Composable
+private fun FbsAssemblySummaryCard(
+    state: FbsAssemblyUiState,
+    compact: Boolean = false,
+    dense: Boolean = false
+) {
+    val metrics = remember(state.orders) { calculateFbsAssemblyOrderMetrics(state.orders) }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = 20.dp,
+                shape = RoundedCornerShape(if (compact) 24.dp else 28.dp),
+                ambientColor = Color.Black.copy(alpha = 0.55f),
+                spotColor = FbsNeonGreen.copy(alpha = 0.08f)
+            ),
+        shape = RoundedCornerShape(if (compact) 24.dp else 28.dp),
+        colors = CardDefaults.cardColors(containerColor = FbsDarkPanel.copy(alpha = 0.98f)),
+        border = BorderStroke(1.dp, FbsDarkBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            Modifier.padding(horizontal = if (compact) 14.dp else 20.dp, vertical = if (compact) 14.dp else 20.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 11.dp else 16.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (compact) 11.dp else 16.dp)) {
+                Box(
+                    Modifier
+                        .size(if (compact) 38.dp else 48.dp)
+                        .clip(CircleShape)
+                        .background(FbsNeonGreen.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(if (compact) 25.dp else 32.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp)) {
                     Text(
-                        if (state.orders.isEmpty()) "Нет заказов для сборки" else "${state.totalOrders} заказов · ${state.totalItems} шт. · ${state.canisterCount} канистр",
-                        color = MutedTextColor,
-                        fontSize = 13.sp,
-                        maxLines = 2,
+                        "Заказы к сборке",
+                        color = FbsDarkText,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = if (compact) 17.sp else 19.sp,
+                        lineHeight = if (compact) 20.sp else 23.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        if (state.orders.isEmpty()) "Нет заказов для сборки" else "${metrics.totalOrders} заказов · ${metrics.totalItems} шт. · ${metrics.canisterCount} канистр",
+                        color = FbsDarkMutedText,
+                        fontSize = if (compact) 12.sp else 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = if (compact) 1 else 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                StatusBadge("${state.totalOrders}", tone = if (state.orders.isEmpty()) BadgeTone.Gray else BadgeTone.Blue)
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(if (compact) 13.dp else 16.dp))
+                        .background(FbsDarkPanelAlt)
+                        .border(1.dp, FbsDarkBorder, RoundedCornerShape(if (compact) 13.dp else 16.dp))
+                        .padding(horizontal = if (compact) 14.dp else 18.dp, vertical = if (compact) 9.dp else 12.dp)
+                ) {
+                    Text(
+                        metrics.totalOrders.toString(),
+                        color = FbsDarkText,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = if (compact) 16.sp else 17.sp,
+                        lineHeight = if (compact) 19.sp else 20.sp
+                    )
+                }
             }
-            FbsAssemblyMetricGrid(
-                firstTitle = "Заказов",
-                firstValue = state.totalOrders.toString(),
-                secondTitle = "Товаров",
-                secondValue = state.totalItems.toString(),
-                thirdTitle = "Канистр",
-                thirdValue = state.canisterCount.toString()
-            )
+            if (!dense) {
+                HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.78f))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+                    FbsAssemblySummaryMetricCell("Заказов", metrics.totalOrders.toString(), Modifier.weight(1f), compact)
+                    FbsAssemblyVerticalDivider()
+                    FbsAssemblySummaryMetricCell("Товаров", metrics.totalItems.toString(), Modifier.weight(1f), compact)
+                    FbsAssemblyVerticalDivider()
+                    FbsAssemblySummaryMetricCell("Канистр", metrics.canisterCount.toString(), Modifier.weight(1f), compact)
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun FbsAssemblyProgressPanel(state: FbsAssemblyUiState, now: LocalDateTime) {
-    val progressPercent = (state.progress * 100f).toInt()
+private fun FbsAssemblySummaryMetricCell(title: String, value: String, modifier: Modifier = Modifier, compact: Boolean = false) {
+    Column(
+        modifier.padding(vertical = if (compact) 3.dp else 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)
+    ) {
+        Text(
+            title,
+            color = FbsDarkMutedText,
+            fontSize = if (compact) 11.sp else 12.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            value,
+            color = FbsDarkText,
+            fontSize = if (compact) 18.sp else 21.sp,
+            lineHeight = if (compact) 21.sp else 24.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun FbsAssemblyVerticalDivider() {
+    Box(
+        Modifier
+            .width(1.dp)
+            .height(52.dp)
+            .background(FbsDarkBorder)
+    )
+}
+
+@Composable
+private fun FbsAssemblyAutoRefreshNotice(state: FbsAssemblyUiState, compact: Boolean = false) {
+    val lastUpdate = state.lastAutoRefreshAtMillis ?: state.lastUpdatedAtMillis
+    val detail = when {
+        state.lastRefreshNewOrders > 0 ->
+            "Добавлено новых заказов: ${state.lastRefreshNewOrders}. Они поставлены в конец очереди."
+        lastUpdate != null ->
+            "Последняя проверка: ${formatFbsAssemblyTime(lastUpdate)}. Новые заказы добавятся в конец очереди."
+        else ->
+            "Новые заказы будут добавляться в конец текущей очереди без сброса прогресса."
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(if (compact) 14.dp else 18.dp))
+            .background(FbsNeonGreen.copy(alpha = 0.10f))
+            .border(1.dp, FbsNeonGreen.copy(alpha = 0.34f), RoundedCornerShape(if (compact) 14.dp else 18.dp))
+            .padding(horizontal = 12.dp, vertical = if (compact) 7.dp else 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Icon(
+            Icons.Outlined.Refresh,
+            contentDescription = null,
+            tint = FbsNeonGreen,
+            modifier = Modifier.size(if (compact) 18.dp else 21.dp)
+        )
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                "Автообновление включено · каждые ${FBS_ASSEMBLY_AUTO_REFRESH_INTERVAL_MILLIS / 1_000} сек",
+                color = FbsNeonGreen,
+                fontWeight = FontWeight.Bold,
+                fontSize = if (compact) 11.sp else 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!compact) {
+                Text(
+                    detail,
+                    color = FbsDarkMutedText,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyProgressPanel(
+    state: FbsAssemblyUiState,
+    now: LocalDateTime,
+    compact: Boolean = false,
+    prominent: Boolean = false
+) {
+    val metrics = remember(state.orders) { calculateFbsAssemblyOrderMetrics(state.orders) }
+    val progressPercent = (metrics.progress * 100f).toInt()
     val timer = fbsAssemblyTimer(now, state.settings.deadlineTime)
-    ModernCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    FbsAssemblyDarkCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(if (compact) 18.dp else 22.dp)) {
+        Column(
+            Modifier.padding(horizontal = if (prominent) 14.dp else 12.dp, vertical = if (compact) 8.dp else 10.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Собрано ${state.collectedOrders} из ${state.totalOrders}", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text(timer.text, color = if (timer.isLate) DangerColor else SuccessColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text(
+                        "Собрано ${metrics.collectedOrders} из ${metrics.totalOrders}",
+                        color = FbsDarkText,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = when {
+                            prominent && compact -> 18.sp
+                            prominent -> 20.sp
+                            compact -> 15.sp
+                            else -> 17.sp
+                        },
+                        lineHeight = when {
+                            prominent && compact -> 21.sp
+                            prominent -> 23.sp
+                            compact -> 18.sp
+                            else -> 20.sp
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        timer.text,
+                        color = if (timer.isLate) DangerColor else FbsNeonGreen,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = if (prominent) 13.sp else 12.sp,
+                        lineHeight = if (prominent) 16.sp else 15.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                StatusBadge("$progressPercent%", tone = if (state.remainingOrders == 0) BadgeTone.Green else BadgeTone.Blue)
+                Box(
+                    Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(FbsNeonGreen.copy(alpha = 0.12f))
+                        .border(1.dp, FbsNeonGreen.copy(alpha = 0.55f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = if (prominent) 12.dp else 10.dp, vertical = if (prominent) 7.dp else 5.dp)
+                ) {
+                    Text("$progressPercent%", color = FbsNeonGreen, fontWeight = FontWeight.ExtraBold, fontSize = if (prominent) 15.sp else 13.sp, maxLines = 1)
+                }
             }
-            PreAssemblyProgressBar(progress = state.progress, color = if (state.remainingOrders == 0) SuccessColor else AccentColor)
-            FbsAssemblyMetricGrid(
-                firstTitle = "Собрано",
-                firstValue = state.collectedOrders.toString(),
-                secondTitle = "Осталось",
-                secondValue = state.remainingOrders.toString(),
-                thirdTitle = "Канистр",
-                thirdValue = state.canisterCount.toString()
-            )
+            PreAssemblyProgressBar(progress = metrics.progress, color = FbsNeonGreen)
+            if (!compact) {
+                FbsAssemblyMetricGrid(
+                    firstTitle = "Собрано",
+                    firstValue = metrics.collectedOrders.toString(),
+                    secondTitle = "Осталось",
+                    secondValue = metrics.remainingOrders.toString(),
+                    thirdTitle = "Канистр",
+                    thirdValue = metrics.canisterCount.toString(),
+                    compact = true,
+                    dark = true
+                )
+            }
         }
     }
 }
@@ -3907,7 +6144,9 @@ private fun FbsAssemblyMetricGrid(
     secondTitle: String,
     secondValue: String,
     thirdTitle: String,
-    thirdValue: String
+    thirdValue: String,
+    compact: Boolean = false,
+    dark: Boolean = false
 ) {
     val metrics = listOf(
         Triple(firstTitle, firstValue, AccentColor),
@@ -3919,47 +6158,515 @@ private fun FbsAssemblyMetricGrid(
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         metrics.forEach { (title, value, color) ->
-            FbsAssemblyMetricCell(title, value, color, Modifier.weight(1f))
+            FbsAssemblyMetricCell(title, value, color, compact, dark, Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun FbsAssemblyMetricCell(title: String, value: String, color: Color, modifier: Modifier = Modifier) {
+private fun FbsAssemblyMetricCell(
+    title: String,
+    value: String,
+    color: Color,
+    compact: Boolean,
+    dark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(if (compact) 15.dp else 18.dp)
+    val displayValue = keepFbsAssemblyDurationOnOneLine(value)
     Column(
         modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(color.copy(alpha = 0.09f))
-            .border(1.dp, color.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 8.dp, vertical = 7.dp),
-        verticalArrangement = Arrangement.spacedBy(1.dp)
+            .clip(shape)
+            .background(if (dark) FbsDarkPanelAlt.copy(alpha = 0.72f) else color.copy(alpha = 0.09f))
+            .border(1.dp, if (dark) FbsDarkBorder else color.copy(alpha = 0.18f), shape)
+            .padding(horizontal = if (compact) 7.dp else 10.dp, vertical = if (compact) 8.dp else 11.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)
     ) {
-        Text(title, color = MutedTextColor, fontSize = 10.sp, lineHeight = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(value, color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, lineHeight = 19.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            title,
+            color = if (dark) FbsDarkMutedText else MutedTextColor,
+            fontSize = if (compact) 11.sp else 13.sp,
+            lineHeight = if (compact) 13.sp else 15.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            displayValue,
+            color = if (dark) FbsNeonGreen else MainTextColor,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (dark) {
+                if (compact) 12.sp else 14.sp
+            } else {
+                if (compact) 17.sp else 20.sp
+            },
+            lineHeight = if (dark) {
+                if (compact) 14.sp else 16.sp
+            } else {
+                if (compact) 19.sp else 22.sp
+            },
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
 @Composable
-private fun FbsAssemblyOrderCard(order: FbsAssemblyOrder, large: Boolean) {
-    ModernCard(
-        Modifier
+private fun FbsAssemblyActiveOrderCard(
+    order: FbsAssemblyOrder,
+    compact: Boolean,
+    dense: Boolean,
+    showMultiPositionWarning: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(if (compact) 22.dp else 26.dp)
+    FbsAssemblyDarkCard(
+        modifier
             .fillMaxWidth()
-            .border(1.dp, fbsAssemblyStatusColor(order.status).copy(alpha = 0.22f), RoundedCornerShape(24.dp))
+            .border(1.2.dp, fbsAssemblyStatusColor(order.status).copy(alpha = 0.58f), shape),
+        shape = shape
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(if (large) 14.dp else 10.dp)) {
-            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FbsAssemblyOrderNumber(order.orderNumber, large = large)
-                    Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FbsAssemblyStatusBadge(order.status)
-                        PreAssemblyMetaChip("${order.totalQuantity} шт.", background = SoftBlueColor, contentColor = AccentColor)
-                        if (order.canisterCount > 0) {
-                            PreAssemblyMetaChip("${order.canisterCount} канистр", background = Color(0xFFFFF4E5), contentColor = WarningColor)
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = if (dense) 12.dp else 15.dp, vertical = if (dense) 11.dp else 14.dp),
+            verticalArrangement = Arrangement.spacedBy(if (dense) 9.dp else 12.dp)
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                FbsAssemblyFocusedOrderNumber(
+                    orderNumber = order.orderNumber,
+                    compact = compact,
+                    modifier = Modifier.weight(1f)
+                )
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FbsAssemblyWorkChip(
+                        text = order.status.title,
+                        color = fbsAssemblyStatusColor(order.status)
+                    )
+                    FbsAssemblyWorkChip(
+                        text = "${order.totalQuantity} шт.",
+                        color = FbsNeonGreen
+                    )
+                }
+            }
+            if (showMultiPositionWarning) {
+                FbsAssemblyMultiPositionWarning(
+                    positionCount = order.distinctPositionCount,
+                    totalQuantity = order.totalQuantity,
+                    compact = dense
+                )
+            }
+            HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.82f))
+            if (order.items.isEmpty()) {
+                Box(
+                    Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "В заказе нет товарных строк",
+                        color = FbsDarkMutedText,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else if (order.items.size == 1) {
+                order.items.first().let { item ->
+                    FbsAssemblyActiveItemCard(
+                        item = item,
+                        status = order.status,
+                        compact = compact,
+                        dense = dense,
+                        modifier = Modifier.weight(1f).fillMaxWidth()
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(if (dense) 8.dp else 10.dp),
+                    contentPadding = PaddingValues(bottom = 2.dp)
+                ) {
+                    items(order.items) { item ->
+                        FbsAssemblyActiveItemCard(
+                            item = item,
+                            status = order.status,
+                            compact = compact,
+                            dense = dense,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = if (dense) 218.dp else 260.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyMultiPositionWarning(
+    positionCount: Int,
+    totalQuantity: Int,
+    compact: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(if (compact) 15.dp else 18.dp)
+    val positionText = "$positionCount ${fbsAssemblyPositionWord(positionCount)}"
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(WarningColor.copy(alpha = 0.14f))
+            .border(1.2.dp, WarningColor.copy(alpha = 0.54f), shape)
+            .padding(horizontal = if (compact) 10.dp else 12.dp, vertical = if (compact) 8.dp else 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 9.dp else 11.dp)
+    ) {
+        Box(
+            Modifier
+                .size(if (compact) 30.dp else 36.dp)
+                .clip(CircleShape)
+                .background(WarningColor.copy(alpha = 0.18f))
+                .border(1.dp, WarningColor.copy(alpha = 0.62f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Outlined.WarningAmber,
+                contentDescription = null,
+                tint = WarningColor,
+                modifier = Modifier.size(if (compact) 19.dp else 23.dp)
+            )
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (compact) 1.dp else 2.dp)) {
+            Text(
+                "Несколько разных позиций",
+                color = WarningColor,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = if (compact) 12.sp else 13.sp,
+                lineHeight = if (compact) 14.sp else 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "В заказе $positionText, всего $totalQuantity шт. Проверьте каждую позицию.",
+                color = FbsDarkText,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = if (compact) 11.sp else 12.sp,
+                lineHeight = if (compact) 13.sp else 15.sp,
+                maxLines = if (compact) 1 else 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyFocusedOrderNumber(
+    orderNumber: String,
+    compact: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val parts = fbsAssemblyOrderNumberParts(orderNumber)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp)) {
+        Text(
+            "Текущий заказ",
+            color = FbsDarkMutedText,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (compact) 12.sp else 13.sp,
+            lineHeight = if (compact) 14.sp else 16.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text(
+                parts.prefix,
+                color = FbsDarkText,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = if (compact) 23.sp else 27.sp,
+                lineHeight = if (compact) 26.sp else 30.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(if (compact) 12.dp else 14.dp))
+                    .background(FbsNeonGreen)
+                    .padding(horizontal = if (compact) 10.dp else 12.dp, vertical = if (compact) 5.dp else 6.dp)
+            ) {
+                Text(
+                    parts.highlight,
+                    color = Color.Black,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = if (compact) 24.sp else 28.sp,
+                    lineHeight = if (compact) 27.sp else 31.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        if (parts.suffix.isNotBlank()) {
+            Text(
+                parts.suffix,
+                color = FbsDarkMutedText,
+                fontWeight = FontWeight.Bold,
+                fontSize = if (compact) 13.sp else 14.sp,
+                lineHeight = if (compact) 15.sp else 17.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyWorkChip(text: String, color: Color, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(color.copy(alpha = 0.14f))
+            .border(1.dp, color.copy(alpha = 0.42f), RoundedCornerShape(999.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text,
+            color = color,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 12.sp,
+            lineHeight = 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun FbsAssemblyActiveItemCard(
+    item: FbsAssemblyItem,
+    status: FbsAssemblyOrderStatus,
+    compact: Boolean,
+    dense: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(if (compact) 19.dp else 22.dp)
+    val hasExtraMeta = !item.article.isNullOrBlank() || item.apiQuantity != item.calculatedQuantity || item.isCanister
+    val nameMaxLines = when {
+        dense && hasExtraMeta -> 4
+        dense -> 5
+        compact && hasExtraMeta -> 5
+        else -> 6
+    }
+    BoxWithConstraints(
+        modifier
+            .clip(shape)
+            .background(FbsDarkPanelAlt.copy(alpha = 0.76f))
+            .border(1.dp, FbsDarkBorder, shape)
+            .padding(if (dense) 10.dp else 12.dp)
+    ) {
+        val narrow = maxWidth < 310.dp
+        val photoWidth = when {
+            dense || narrow -> 68.dp
+            compact -> 78.dp
+            else -> 92.dp
+        }
+        val photoHeight = when {
+            dense || narrow -> 90.dp
+            compact -> 106.dp
+            else -> 124.dp
+        }
+        Column(
+            Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(if (dense) 8.dp else 11.dp)
+        ) {
+            Row(
+                Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(if (dense) 10.dp else 12.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                FbsAssemblyProductPhoto(
+                    imageUrl = item.imageUrl,
+                    status = status,
+                    decorated = true,
+                    modifier = Modifier.size(width = photoWidth, height = photoHeight)
+                )
+                Column(
+                    Modifier.weight(1f).fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(if (dense) 6.dp else 8.dp)
+                ) {
+                    Text(
+                        item.name,
+                        color = FbsDarkText,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = if (dense) 16.sp else 18.sp,
+                        lineHeight = if (dense) 19.sp else 22.sp,
+                        maxLines = nameMaxLines,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (!item.article.isNullOrBlank()) {
+                        Text(
+                            "Арт. ${item.article}",
+                            color = FbsDarkMutedText,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = if (dense) 12.sp else 13.sp,
+                            lineHeight = if (dense) 15.sp else 16.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (item.apiQuantity != item.calculatedQuantity || item.isCanister) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (item.apiQuantity != item.calculatedQuantity) {
+                                FbsAssemblyWorkChip("API ${item.apiQuantity}", color = FbsDarkMutedText)
+                            }
+                            if (item.isCanister) {
+                                FbsAssemblyWorkChip("канистра", color = WarningColor)
+                            }
                         }
                     }
                 }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(if (large) 10.dp else 7.dp)) {
+            FbsAssemblyQuantityBanner(
+                quantity = item.calculatedQuantity,
+                isCanister = item.isCanister,
+                dense = dense,
+                modifier = Modifier.fillMaxWidth().height(if (dense) 84.dp else 102.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyQuantityBanner(
+    quantity: Int,
+    isCanister: Boolean,
+    dense: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(if (dense) 18.dp else 20.dp)
+    Box(
+        modifier
+            .clip(shape)
+            .background(
+                Brush.horizontalGradient(
+                    listOf(
+                        FbsNeonGreen.copy(alpha = 0.035f),
+                        FbsNeonGreen.copy(alpha = 0.055f),
+                        FbsNeonGreen.copy(alpha = 0.030f)
+                    )
+                )
+            )
+            .border(1.2.dp, FbsNeonGreen.copy(alpha = 0.28f), shape)
+            .padding(horizontal = if (dense) 13.dp else 16.dp, vertical = if (dense) 10.dp else 12.dp)
+    ) {
+        Text(
+            "Количество",
+            color = FbsNeonGreen,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (dense) 12.sp else 13.sp,
+            lineHeight = if (dense) 14.sp else 16.sp,
+            modifier = Modifier.align(Alignment.TopStart)
+        )
+        Row(
+            Modifier.align(Alignment.Center),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text(
+                quantity.toString(),
+                color = FbsNeonGreen,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = if (dense) 38.sp else 46.sp,
+                lineHeight = if (dense) 40.sp else 48.sp,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                "шт.",
+                color = FbsNeonGreen,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = if (dense) 18.sp else 21.sp,
+                lineHeight = if (dense) 25.sp else 29.sp,
+                maxLines = 1
+            )
+        }
+        if (isCanister) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(WarningColor.copy(alpha = 0.16f))
+                    .padding(horizontal = 9.dp, vertical = 5.dp)
+            ) {
+                Text("канистра", color = WarningColor, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun FbsAssemblyOrderCard(
+    order: FbsAssemblyOrder,
+    large: Boolean,
+    modifier: Modifier = Modifier,
+    showMultiPositionWarning: Boolean = false
+) {
+    FbsAssemblyDarkCard(
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = if (large) 430.dp else 0.dp)
+            .border(1.dp, fbsAssemblyStatusColor(order.status).copy(alpha = 0.42f), RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp)
+    ) {
+        Column(Modifier.padding(if (large) 18.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(if (large) 14.dp else 10.dp)) {
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FbsAssemblyOrderNumber(
+                        orderNumber = order.orderNumber,
+                        large = large,
+                        status = order.status.takeIf { large }
+                    )
+                    if (!large) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            FbsAssemblyStatusBadge(order.status)
+                            PreAssemblyMetaChip("${order.totalQuantity} шт.", background = FbsNeonGreen.copy(alpha = 0.12f), contentColor = FbsNeonGreen)
+                            if (showMultiPositionWarning) {
+                                PreAssemblyMetaChip(
+                                    "${order.distinctPositionCount} поз.",
+                                    background = WarningColor.copy(alpha = 0.15f),
+                                    contentColor = WarningColor
+                                )
+                            }
+                            if (order.canisterCount > 0) {
+                                PreAssemblyMetaChip("${order.canisterCount} канистр", background = WarningColor.copy(alpha = 0.15f), contentColor = WarningColor)
+                            }
+                        }
+                    }
+                }
+            }
+            if (showMultiPositionWarning) {
+                FbsAssemblyMultiPositionWarning(
+                    positionCount = order.distinctPositionCount,
+                    totalQuantity = order.totalQuantity,
+                    compact = !large
+                )
+            }
+            if (large) {
+                HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.82f))
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(if (large) 12.dp else 7.dp)) {
                 order.items.forEach { item ->
                     FbsAssemblyItemRow(item = item, status = order.status, large = large)
                 }
@@ -3969,102 +6676,241 @@ private fun FbsAssemblyOrderCard(order: FbsAssemblyOrder, large: Boolean) {
 }
 
 @Composable
-private fun FbsAssemblyOrderNumber(orderNumber: String, large: Boolean) {
+private fun FbsAssemblyOrderNumber(
+    orderNumber: String,
+    large: Boolean,
+    status: FbsAssemblyOrderStatus? = null
+) {
     val parts = fbsAssemblyOrderNumberParts(orderNumber)
     Column(verticalArrangement = Arrangement.spacedBy(if (large) 6.dp else 3.dp)) {
-        Text("Заказ", color = MutedTextColor, fontWeight = FontWeight.SemiBold, fontSize = if (large) 14.sp else 12.sp)
+        Text("Заказ", color = FbsDarkMutedText, fontWeight = FontWeight.ExtraBold, fontSize = if (large) 12.sp else 11.sp)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(
                 parts.prefix,
-                color = MainTextColor,
+                color = FbsDarkText,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = if (large) 29.sp else 20.sp,
-                lineHeight = if (large) 32.sp else 23.sp,
-                maxLines = 1
+                fontSize = if (large) 19.sp else 16.sp,
+                lineHeight = if (large) 22.sp else 19.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(if (large) 12.dp else 9.dp))
-                    .background(MainTextColor)
+                    .background(FbsNeonGreen)
                     .padding(horizontal = if (large) 10.dp else 7.dp, vertical = if (large) 5.dp else 3.dp)
             ) {
                 Text(
                     parts.highlight,
-                    color = Color.White,
+                    color = Color.Black,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = if (large) 32.sp else 22.sp,
-                    lineHeight = if (large) 34.sp else 24.sp,
-                    maxLines = 1
+                    fontSize = if (large) 20.sp else 17.sp,
+                    lineHeight = if (large) 23.sp else 19.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
-        if (parts.suffix.isNotBlank()) {
-            Text(parts.suffix, color = MutedTextColor, fontWeight = FontWeight.Bold, fontSize = if (large) 20.sp else 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (parts.suffix.isNotBlank() || status != null) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (parts.suffix.isNotBlank()) {
+                    Text(
+                        parts.suffix,
+                        color = FbsDarkMutedText,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = if (large) 13.sp else 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                status?.let { FbsAssemblyStatusBadge(it) }
+            }
         }
     }
 }
 
 @Composable
 private fun FbsAssemblyItemRow(item: FbsAssemblyItem, status: FbsAssemblyOrderStatus, large: Boolean) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFFF8FAFF))
-            .border(1.dp, CardBorderColor.copy(alpha = 0.7f), RoundedCornerShape(18.dp))
-            .padding(if (large) 10.dp else 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(if (large) 10.dp else 8.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        FbsAssemblyProductPhoto(
-            imageUrl = item.imageUrl,
-            status = status,
-            modifier = Modifier.size(width = if (large) 82.dp else 58.dp, height = if (large) 104.dp else 74.dp)
-        )
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(
-                item.name,
-                color = MainTextColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = if (large) 16.sp else 13.sp,
-                lineHeight = if (large) 20.sp else 16.sp,
-                maxLines = if (large) 6 else Int.MAX_VALUE,
-                overflow = if (large) TextOverflow.Ellipsis else TextOverflow.Clip
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                FbsAssemblyQuantityBadge(item.calculatedQuantity, large = large)
-                if (item.apiQuantity != item.calculatedQuantity) {
-                    PreAssemblyMetaChip("API ${item.apiQuantity}", background = Color(0xFFF4F6FB), contentColor = MutedTextColor)
-                }
-                if (item.isCanister) {
-                    PreAssemblyMetaChip("канистра", background = Color(0xFFFFF4E5), contentColor = WarningColor)
+    val shape = RoundedCornerShape(if (large) 22.dp else 18.dp)
+    if (large) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(FbsDarkPanelAlt.copy(alpha = 0.72f))
+                .border(1.dp, FbsDarkBorder, shape)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val compact = maxWidth < 310.dp
+                val photoWidth = if (compact) 98.dp else 122.dp
+                val photoHeight = if (compact) 164.dp else 188.dp
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    FbsAssemblyProductPhoto(
+                        imageUrl = item.imageUrl,
+                        status = status,
+                        decorated = true,
+                        modifier = Modifier.size(width = photoWidth, height = photoHeight)
+                    )
+                    Column(
+                        Modifier.weight(1f).heightIn(min = photoHeight),
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        Text(
+                            item.name,
+                            color = FbsDarkText,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            lineHeight = 16.sp,
+                            maxLines = 8,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (!item.article.isNullOrBlank()) {
+                            Text(
+                                "Арт. ${item.article}",
+                                color = FbsDarkMutedText,
+                                fontSize = 11.sp,
+                                lineHeight = 14.sp,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (item.apiQuantity != item.calculatedQuantity || item.isCanister) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (item.apiQuantity != item.calculatedQuantity) {
+                                    PreAssemblyMetaChip("API ${item.apiQuantity}", background = FbsDarkBorder, contentColor = FbsDarkMutedText)
+                                }
+                                if (item.isCanister) {
+                                    PreAssemblyMetaChip("канистра", background = WarningColor.copy(alpha = 0.16f), contentColor = WarningColor)
+                                }
+                            }
+                        }
+                    }
                 }
             }
-            if (!item.article.isNullOrBlank()) {
-                Text("Арт. ${item.article}", color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            FbsAssemblyQuantityBadge(
+                quantity = item.calculatedQuantity,
+                large = true,
+                modifier = Modifier.fillMaxWidth().height(92.dp)
+            )
+        }
+    } else {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(FbsDarkPanelAlt.copy(alpha = 0.72f))
+                .border(1.dp, FbsDarkBorder, shape)
+                .padding(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            FbsAssemblyProductPhoto(
+                imageUrl = item.imageUrl,
+                status = status,
+                modifier = Modifier.size(width = 58.dp, height = 74.dp)
+            )
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    item.name,
+                    color = FbsDarkText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 6,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FbsAssemblyQuantityBadge(item.calculatedQuantity, large = false)
+                    if (item.apiQuantity != item.calculatedQuantity) {
+                        PreAssemblyMetaChip("API ${item.apiQuantity}", background = FbsDarkBorder, contentColor = FbsDarkMutedText)
+                    }
+                    if (item.isCanister) {
+                        PreAssemblyMetaChip("канистра", background = WarningColor.copy(alpha = 0.16f), contentColor = WarningColor)
+                    }
+                }
+                if (!item.article.isNullOrBlank()) {
+                    Text(
+                        "Арт. ${item.article}",
+                        color = FbsDarkMutedText,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun FbsAssemblyQuantityBadge(quantity: Int, large: Boolean) {
+private fun FbsAssemblyQuantityBadge(quantity: Int, large: Boolean, modifier: Modifier = Modifier) {
+    if (large) {
+        Box(
+            modifier
+                .clip(RoundedCornerShape(18.dp))
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(FbsNeonGreen.copy(alpha = 0.12f), FbsNeonGreen.copy(alpha = 0.18f), FbsNeonGreen.copy(alpha = 0.10f))
+                    )
+                )
+                .border(1.dp, FbsNeonGreen.copy(alpha = 0.42f), RoundedCornerShape(18.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Text(
+                "Количество",
+                color = FbsNeonGreen,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 12.sp,
+                modifier = Modifier.align(Alignment.TopStart)
+            )
+            Text(
+                quantity.toString(),
+                color = FbsNeonGreen,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 24.sp,
+                lineHeight = 28.sp,
+                modifier = Modifier.align(Alignment.Center)
+            )
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(FbsNeonGreen.copy(alpha = 0.13f))
+                    .padding(horizontal = 9.dp, vertical = 5.dp)
+            ) {
+                Text("шт.", color = FbsNeonGreen, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+            }
+        }
+        return
+    }
+
     Row(
-        Modifier
+        modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(Color(0xFFE9F8EF))
-            .padding(horizontal = if (large) 11.dp else 9.dp, vertical = if (large) 5.dp else 3.dp),
+            .background(FbsNeonGreen.copy(alpha = 0.14f))
+            .padding(horizontal = 9.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Text(
             quantity.toString(),
-            color = SuccessColor,
+            color = FbsNeonGreen,
             fontWeight = FontWeight.ExtraBold,
-            fontSize = if (large) 21.sp else 16.sp,
+            fontSize = 14.sp,
+            lineHeight = 16.sp,
             maxLines = 1
         )
-        Text("шт.", color = SuccessColor, fontWeight = FontWeight.Bold, fontSize = if (large) 12.sp else 10.sp, maxLines = 1)
+        Text("шт.", color = FbsNeonGreen, fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
     }
 }
 
@@ -4072,12 +6918,13 @@ private fun FbsAssemblyQuantityBadge(quantity: Int, large: Boolean) {
 private fun FbsAssemblyProductPhoto(
     imageUrl: String?,
     status: FbsAssemblyOrderStatus,
+    decorated: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val imageBitmap by produceState<ImageBitmap?>(initialValue = null, imageUrl) {
         value = imageUrl?.let { url ->
             preAssemblyProductImageCache[url] ?: loadPreAssemblyProductImage(url)?.also { bitmap ->
-                preAssemblyProductImageCache[url] = bitmap
+                preAssemblyProductImageCache.put(url, bitmap)
             }
         }
     }
@@ -4086,8 +6933,8 @@ private fun FbsAssemblyProductPhoto(
     Box(
         modifier
             .clip(shape)
-            .background(fbsAssemblyStatusBackground(status))
-            .border(1.dp, fbsAssemblyStatusColor(status).copy(alpha = 0.22f), shape),
+            .background(fbsAssemblyStatusColor(status).copy(alpha = 0.12f))
+            .border(1.dp, fbsAssemblyStatusColor(status).copy(alpha = 0.38f), shape),
         contentAlignment = Alignment.Center
     ) {
         if (imageBitmap != null) {
@@ -4098,13 +6945,68 @@ private fun FbsAssemblyProductPhoto(
                 contentScale = ContentScale.Crop
             )
         } else {
-            Icon(
-                Icons.Outlined.Inventory2,
-                contentDescription = null,
-                tint = fbsAssemblyStatusColor(status),
-                modifier = Modifier.size(24.dp)
-            )
+            if (decorated) {
+                Canvas(Modifier.fillMaxSize()) {
+                    val cornerInset = 17.dp.toPx()
+                    val cornerLength = 9.dp.toPx()
+                    val cornerStroke = 1.6.dp.toPx()
+                    val cornerColor = FbsNeonGreen.copy(alpha = 0.26f)
+
+                    drawLine(cornerColor, Offset(cornerInset, cornerInset), Offset(cornerInset + cornerLength, cornerInset), cornerStroke)
+                    drawLine(cornerColor, Offset(cornerInset, cornerInset), Offset(cornerInset, cornerInset + cornerLength), cornerStroke)
+                    drawLine(cornerColor, Offset(size.width - cornerInset, cornerInset), Offset(size.width - cornerInset - cornerLength, cornerInset), cornerStroke)
+                    drawLine(cornerColor, Offset(size.width - cornerInset, cornerInset), Offset(size.width - cornerInset, cornerInset + cornerLength), cornerStroke)
+                    drawLine(cornerColor, Offset(cornerInset, size.height - cornerInset), Offset(cornerInset + cornerLength, size.height - cornerInset), cornerStroke)
+                    drawLine(cornerColor, Offset(cornerInset, size.height - cornerInset), Offset(cornerInset, size.height - cornerInset - cornerLength), cornerStroke)
+                    drawLine(cornerColor, Offset(size.width - cornerInset, size.height - cornerInset), Offset(size.width - cornerInset - cornerLength, size.height - cornerInset), cornerStroke)
+                    drawLine(cornerColor, Offset(size.width - cornerInset, size.height - cornerInset), Offset(size.width - cornerInset, size.height - cornerInset - cornerLength), cornerStroke)
+
+                    val dotY = size.height - 18.dp.toPx()
+                    val dotRadius = 3.5.dp.toPx()
+                    val dotGap = 13.dp.toPx()
+                    val centerX = size.width / 2f
+                    drawCircle(FbsNeonGreen, dotRadius, Offset(centerX - dotGap, dotY))
+                    drawCircle(FbsDarkBorder.copy(alpha = 0.68f), dotRadius, Offset(centerX, dotY))
+                    drawCircle(FbsDarkBorder, dotRadius, Offset(centerX + dotGap, dotY))
+                }
+            }
+            if (decorated) {
+                FbsAssemblyPackagePlaceholderIcon(color = fbsAssemblyStatusColor(status))
+            } else {
+                Icon(
+                    Icons.Outlined.Inventory2,
+                    contentDescription = null,
+                    tint = fbsAssemblyStatusColor(status),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun FbsAssemblyPackagePlaceholderIcon(color: Color) {
+    Canvas(Modifier.size(48.dp)) {
+        val stroke = 2.3.dp.toPx()
+        val top = Offset(size.width * 0.50f, size.height * 0.10f)
+        val leftTop = Offset(size.width * 0.13f, size.height * 0.31f)
+        val center = Offset(size.width * 0.50f, size.height * 0.52f)
+        val rightTop = Offset(size.width * 0.87f, size.height * 0.31f)
+        val leftBottom = Offset(size.width * 0.13f, size.height * 0.73f)
+        val bottom = Offset(size.width * 0.50f, size.height * 0.94f)
+        val rightBottom = Offset(size.width * 0.87f, size.height * 0.73f)
+
+        drawLine(color, top, leftTop, stroke)
+        drawLine(color, leftTop, center, stroke)
+        drawLine(color, center, rightTop, stroke)
+        drawLine(color, rightTop, top, stroke)
+        drawLine(color, leftTop, leftBottom, stroke)
+        drawLine(color, leftBottom, bottom, stroke)
+        drawLine(color, bottom, rightBottom, stroke)
+        drawLine(color, rightBottom, rightTop, stroke)
+        drawLine(color, center, bottom, stroke)
+        drawLine(color, Offset(size.width * 0.31f, size.height * 0.20f), Offset(size.width * 0.68f, size.height * 0.41f), stroke)
+        drawLine(color, Offset(size.width * 0.68f, size.height * 0.41f), Offset(size.width * 0.68f, size.height * 0.54f), stroke)
     }
 }
 
@@ -4113,8 +7015,8 @@ private fun FbsAssemblyStatusBadge(status: FbsAssemblyOrderStatus) {
     Box(
         Modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(fbsAssemblyStatusBackground(status))
-            .border(1.dp, fbsAssemblyStatusColor(status).copy(alpha = 0.28f), RoundedCornerShape(999.dp))
+            .background(fbsAssemblyStatusColor(status).copy(alpha = 0.13f))
+            .border(1.dp, fbsAssemblyStatusColor(status).copy(alpha = 0.42f), RoundedCornerShape(999.dp))
             .padding(horizontal = 10.dp, vertical = 5.dp)
     ) {
         Text(status.title, color = fbsAssemblyStatusColor(status), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
@@ -4123,16 +7025,30 @@ private fun FbsAssemblyStatusBadge(status: FbsAssemblyOrderStatus) {
 
 @Composable
 private fun FbsAssemblyLoadingCard() {
-    ModernCard(Modifier.fillMaxWidth()) {
+    FbsAssemblyDarkCard(Modifier.fillMaxWidth()) {
         Row(
             Modifier.padding(18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            CircularProgressIndicator(color = AccentColor, strokeWidth = 3.dp, modifier = Modifier.size(30.dp))
+            CircularProgressIndicator(color = FbsNeonGreen, strokeWidth = 3.dp, modifier = Modifier.size(30.dp))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Загружаем заказы Ozon...", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                Text("После загрузки можно открыть список или начать сборку", color = MutedTextColor, fontSize = 13.sp)
+                Text(
+                    "Загружаем заказы Ozon...",
+                    color = FbsDarkText,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "После загрузки можно открыть список или начать сборку",
+                    color = FbsDarkMutedText,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -4143,62 +7059,127 @@ private fun FbsAssemblyEmptyCard(
     title: String = "Нет заказов для сборки",
     text: String = "В актуальном списке Ozon нет FBS-заказов в статусе ожидания упаковки."
 ) {
-    ModernCard(Modifier.fillMaxWidth()) {
+    FbsAssemblyDarkCard(Modifier.fillMaxWidth()) {
         Column(
             Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            AppIconBubble(Icons.Outlined.Inventory2, tint = MutedTextColor, background = Color(0xFFF2F4F7), modifier = Modifier.size(58.dp))
-            Text(title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 20.sp, textAlign = TextAlign.Center)
-            Text(text, color = MutedTextColor, textAlign = TextAlign.Center, lineHeight = 20.sp)
+            AppIconBubble(Icons.Outlined.Inventory2, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f), modifier = Modifier.size(58.dp))
+            Text(
+                title,
+                color = FbsDarkText,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                lineHeight = 19.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text,
+                color = FbsDarkMutedText,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
 
 @Composable
-private fun FbsAssemblyErrorCard(message: String, onRetry: () -> Unit) {
-    ModernCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+private fun FbsAssemblyErrorCard(message: String, onRetry: () -> Unit, compact: Boolean = false) {
+    FbsAssemblyDarkCard(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier.padding(if (compact) 12.dp else 18.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp)) {
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(if (compact) 34.dp else 42.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFFFE8E8)),
+                        .background(DangerColor.copy(alpha = 0.14f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Outlined.Close, contentDescription = null, tint = DangerColor)
+                    Icon(Icons.Outlined.Close, contentDescription = null, tint = DangerColor, modifier = Modifier.size(if (compact) 18.dp else 24.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    Text("Не удалось загрузить заказы", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                    Text(message, color = MutedTextColor, fontSize = 13.sp)
+                    Text(
+                        "Не удалось загрузить заказы",
+                        color = FbsDarkText,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = if (compact) 14.sp else 16.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        message,
+                        color = FbsDarkMutedText,
+                        fontSize = if (compact) 12.sp else 13.sp,
+                        maxLines = if (compact) 2 else 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
-            AppPrimaryButton("Повторить загрузку", icon = Icons.Outlined.FileDownload, onClick = onRetry, modifier = Modifier.fillMaxWidth())
+            FbsAssemblyOutlinedLargeActionButton("Повторить загрузку", icon = Icons.Outlined.FileDownload, enabled = true, onClick = onRetry, compact = true, modifier = Modifier.fillMaxWidth().height(52.dp))
         }
     }
 }
 
 @Composable
-private fun FbsAssemblyRefreshConfirmDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+private fun FbsAssemblyResetDataConfirmDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        FbsAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(16.dp),
+            shape = RoundedCornerShape(24.dp)
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Сборка уже началась", color = MainTextColor, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
                 Text(
-                    "При обновлении список заказов может измениться, а текущий прогресс будет сброшен.",
-                    color = MutedTextColor,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
+                    "Сбросить данные FBS?",
+                    color = FbsDarkText,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 17.sp,
+                    lineHeight = 20.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    "Будут очищены локальная история, аналитика, настройки и текущий прогресс. Заказы Ozon не удаляются.",
+                    color = FbsDarkMutedText,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AppSecondaryButton("Отмена", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
-                    AppPrimaryButton("Обновить", icon = Icons.Outlined.FileDownload, onClick = onConfirm, modifier = Modifier.weight(1f))
+                    FbsAssemblySecondaryActionButton("Отмена", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
+                    OutlinedButton(
+                        onClick = onConfirm,
+                        modifier = Modifier.weight(1f).height(52.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, DangerColor.copy(alpha = 0.70f)),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = FbsDarkPanelAlt,
+                            contentColor = DangerColor
+                        )
+                    ) {
+                        Icon(Icons.Outlined.Delete, contentDescription = null, tint = DangerColor, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(7.dp))
+                        Text(
+                            "Сбросить",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            lineHeight = 16.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
@@ -4216,6 +7197,74 @@ private fun FbsAssemblyInfoLine(title: String, value: String) {
 private data class FbsOrderNumberParts(val prefix: String, val highlight: String, val suffix: String)
 
 private data class FbsAssemblyTimerInfo(val text: String, val isLate: Boolean)
+
+private data class FbsAssemblyOrderMetrics(
+    val totalOrders: Int,
+    val collectedOrders: Int,
+    val remainingOrders: Int,
+    val totalItems: Int,
+    val canisterCount: Int,
+    val progress: Float
+)
+
+@Composable
+private fun rememberCurrentDateTime(
+    refreshIntervalMillis: Long,
+    enabled: Boolean = true
+): LocalDateTime {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val now by produceState(
+        initialValue = LocalDateTime.now(),
+        lifecycleOwner,
+        refreshIntervalMillis,
+        enabled
+    ) {
+        if (!enabled) return@produceState
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                value = LocalDateTime.now()
+                delay(refreshIntervalMillis)
+            }
+        }
+    }
+    return now
+}
+
+private fun calculateFbsAssemblyOrderMetrics(orders: List<FbsAssemblyOrder>): FbsAssemblyOrderMetrics {
+    var collectedOrders = 0
+    var totalItems = 0
+    var canisterCount = 0
+    orders.forEach { order ->
+        if (order.status == FbsAssemblyOrderStatus.COLLECTED) collectedOrders++
+        order.items.forEach { item ->
+            totalItems += item.calculatedQuantity
+            if (item.isCanister) canisterCount += item.apiQuantity.coerceAtLeast(1)
+        }
+    }
+    val totalOrders = orders.size
+    return FbsAssemblyOrderMetrics(
+        totalOrders = totalOrders,
+        collectedOrders = collectedOrders,
+        remainingOrders = (totalOrders - collectedOrders).coerceAtLeast(0),
+        totalItems = totalItems,
+        canisterCount = canisterCount,
+        progress = if (totalOrders == 0) 0f else collectedOrders.toFloat() / totalOrders.toFloat()
+    )
+}
+
+private fun fbsAssemblyShowMultiPositionWarning(order: FbsAssemblyOrder): Boolean =
+    order.hasMultipleDifferentPositions
+
+private fun fbsAssemblyPositionWord(count: Int): String {
+    val lastTwoDigits = count % 100
+    val lastDigit = count % 10
+    return when {
+        lastTwoDigits in 11..14 -> "позиций"
+        lastDigit == 1 -> "позиция"
+        lastDigit in 2..4 -> "позиции"
+        else -> "позиций"
+    }
+}
 
 private fun fbsAssemblyOrderNumberParts(orderNumber: String): FbsOrderNumberParts {
     val firstBlock = orderNumber.substringBefore("-")
@@ -4274,6 +7323,13 @@ private fun formatFbsAssemblyShortDuration(seconds: Long?): String {
     }
 }
 
+private fun keepFbsAssemblyDurationOnOneLine(value: String): String =
+    if (value.contains(" мин ") && value.endsWith(" сек")) {
+        value.replace(" ", "\u00A0")
+    } else {
+        value
+    }
+
 private fun formatFbsAssemblyDate(millis: Long): String =
     Instant.ofEpochMilli(millis)
         .atZone(ZoneId.systemDefault())
@@ -4320,9 +7376,9 @@ private fun fbsAssemblyFinishedInTime(finishedAtMillis: Long?, deadlineTime: Str
 }
 
 private fun fbsAssemblyStatusColor(status: FbsAssemblyOrderStatus): Color = when (status) {
-    FbsAssemblyOrderStatus.WAITING -> MutedTextColor
-    FbsAssemblyOrderStatus.CURRENT -> AccentColor
-    FbsAssemblyOrderStatus.COLLECTED -> SuccessColor
+    FbsAssemblyOrderStatus.WAITING -> FbsDarkMutedText
+    FbsAssemblyOrderStatus.CURRENT -> FbsNeonGreen
+    FbsAssemblyOrderStatus.COLLECTED -> FbsNeonGreen
     FbsAssemblyOrderStatus.SKIPPED -> WarningColor
     FbsAssemblyOrderStatus.PROBLEM,
     FbsAssemblyOrderStatus.NOT_FOUND,
@@ -4354,28 +7410,46 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
     var statusFilter by rememberSaveable { mutableStateOf("ALL") }
     var sortOrderKey by rememberSaveable { mutableStateOf(PreAssemblySortOrder.ATTENTION.name) }
     var isSummaryExpanded by rememberSaveable { mutableStateOf(true) }
+    var topChromeExpanded by rememberSaveable { mutableStateOf(true) }
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     var printBridgeHost by rememberSaveable { mutableStateOf(PreAssemblyPrinter.savedBridgeHost(context)) }
     var printPrinterName by rememberSaveable { mutableStateOf(PreAssemblyPrinter.savedPrinterName(context)) }
     val sortOrder = PreAssemblySortOrder.values().firstOrNull { it.name == sortOrderKey } ?: PreAssemblySortOrder.ATTENTION
-    val checkedCount = state.items.count { it.status != PreAssemblyStatus.NOT_CHECKED }
-    val availableCount = state.items.count { it.status == PreAssemblyStatus.AVAILABLE }
-    val toTransferCount = state.items.count { it.status == PreAssemblyStatus.NOT_AVAILABLE || it.status == PreAssemblyStatus.NEED_TRANSFER }
-    val notCheckedCount = state.items.size - checkedCount
-    val commentsCount = state.items.count { it.comment.isNotBlank() }
-    val hasActiveFilters = searchQuery.isNotBlank() || statusFilter != "ALL"
-    val filteredItems = state.items.filter { item ->
-        val byStatus = statusFilter == "ALL" || item.status.name == statusFilter
-        val query = searchQuery.trim()
-        val bySearch = query.isBlank() || item.offerId.contains(query, ignoreCase = true) ||
-            item.name.contains(query, ignoreCase = true) ||
-            item.orderId.contains(query, ignoreCase = true) ||
-            (item.sku?.contains(query, ignoreCase = true) == true)
-        byStatus && bySearch
+    val itemMetrics = remember(state.items) {
+        var checked = 0
+        var available = 0
+        var toTransfer = 0
+        var comments = 0
+        state.items.forEach { item ->
+            if (item.status != PreAssemblyStatus.NOT_CHECKED) checked++
+            if (item.status == PreAssemblyStatus.AVAILABLE) available++
+            if (item.status == PreAssemblyStatus.NOT_AVAILABLE || item.status == PreAssemblyStatus.NEED_TRANSFER) toTransfer++
+            if (item.comment.isNotBlank()) comments++
+        }
+        intArrayOf(checked, available, toTransfer, comments)
     }
-    val sortedItems = sortPreAssemblyItems(filteredItems, sortOrder)
-    val visibleIds = filteredItems.map { it.id }
+    val checkedCount = itemMetrics[0]
+    val availableCount = itemMetrics[1]
+    val toTransferCount = itemMetrics[2]
+    val notCheckedCount = state.items.size - checkedCount
+    val commentsCount = itemMetrics[3]
+    val hasActiveFilters = searchQuery.isNotBlank() || statusFilter != "ALL"
+    val normalizedSearchQuery = remember(searchQuery) { searchQuery.trim() }
+    val filteredItems = remember(state.items, statusFilter, normalizedSearchQuery) {
+        state.items.filter { item ->
+            val byStatus = statusFilter == "ALL" || item.status.name == statusFilter
+            val bySearch = normalizedSearchQuery.isBlank() ||
+                item.offerId.contains(normalizedSearchQuery, ignoreCase = true) ||
+                item.name.contains(normalizedSearchQuery, ignoreCase = true) ||
+                item.orderId.contains(normalizedSearchQuery, ignoreCase = true) ||
+                (item.sku?.contains(normalizedSearchQuery, ignoreCase = true) == true)
+            byStatus && bySearch
+        }
+    }
+    val sortedItems = remember(filteredItems, sortOrder) { sortPreAssemblyItems(filteredItems, sortOrder) }
+    val visibleIds = remember(filteredItems) { filteredItems.map { it.id } }
+    val actionDockVisible = state.items.isNotEmpty() || state.archive.isNotEmpty() || state.reportText.isNotBlank()
 
     LaunchedEffect(state.message) {
         if (state.message != null) {
@@ -4399,22 +7473,20 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
     fun printReport(text: String) {
         PreAssemblyPrinter.printTransferList(context, text)
             .onFailure { error ->
-                Toast.makeText(
-                    context,
-                    "Не удалось открыть печать: ${error.message ?: "ошибка печати"}",
-                    Toast.LENGTH_LONG
-                ).show()
+                PrinterUiNotifier.error(
+                    title = "Не удалось открыть печать",
+                    text = error.message ?: "Ошибка печати"
+                )
             }
     }
 
     fun printTestPage() {
         PreAssemblyPrinter.printTestPage(context)
             .onFailure { error ->
-                Toast.makeText(
-                    context,
-                    "Не удалось открыть тестовую печать: ${error.message ?: "ошибка печати"}",
-                    Toast.LENGTH_LONG
-                ).show()
+                PrinterUiNotifier.error(
+                    title = "Не удалось открыть тестовую печать",
+                    text = error.message ?: "Ошибка печати"
+                )
             }
     }
 
@@ -4423,22 +7495,56 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
         PreAssemblyPrintLog.share(context)
             .onFailure { error ->
                 PreAssemblyPrintLog.append(context, "Не удалось выгрузить логи печати", error)
-                Toast.makeText(
-                    context,
-                    "Не удалось выгрузить логи печати: ${error.message ?: "ошибка экспорта"}",
-                    Toast.LENGTH_LONG
-                ).show()
+                PrinterUiNotifier.error(
+                    title = "Не удалось выгрузить логи печати",
+                    text = error.message ?: "Ошибка экспорта"
+                )
             }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .background(FbsDarkBackground)
+    ) {
+        val compactScreen = maxHeight < 740.dp || maxWidth < 430.dp
+        val denseScreen = maxHeight < 620.dp || maxWidth < 370.dp
+        val screenPadding = if (compactScreen) 10.dp else 18.dp
+        val sectionSpacing = when {
+            denseScreen -> 7.dp
+            compactScreen -> 8.dp
+            else -> 14.dp
+        }
+        val feedbackTopPadding = when {
+            !topChromeExpanded -> 48.dp
+            compactScreen -> 72.dp
+            else -> 88.dp
+        }
+        val listBottomPadding = when {
+            !actionDockVisible -> 18.dp
+            compactScreen -> 94.dp
+            else -> 134.dp
+        }
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(horizontal = screenPadding, vertical = if (denseScreen) 8.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(sectionSpacing)
         ) {
-            PreAssemblyHeader(onBack = onBack, onRefresh = vm::loadOrders, isLoading = state.isLoading)
+            PreAssemblyHeader(
+                onBack = onBack,
+                onMore = { showBulkActions = true },
+                onRefresh = vm::loadOrders,
+                isLoading = state.isLoading,
+                compact = compactScreen,
+                expanded = topChromeExpanded,
+                onExpandedChange = { topChromeExpanded = it },
+                subtitle = when {
+                    state.isCompleted -> "Проверка остатков завершена"
+                    state.items.isEmpty() -> "Проверка остатков не загружена"
+                    else -> "Проверка остатков открыта"
+                }
+            )
 
             when {
                 state.isLoading -> PreAssemblyLoadingCard()
@@ -4466,7 +7572,9 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
                         visibleCount = filteredItems.size,
                         totalCount = state.items.size,
                         sortTitle = sortOrder.title,
-                        isCompleted = state.isCompleted
+                        isCompleted = state.isCompleted,
+                        hasActiveFilters = hasActiveFilters,
+                        onOpenFilters = { showControls = true }
                     )
                     if (filteredItems.isEmpty()) {
                         PreAssemblyNoResultsCard(onReset = { searchQuery = ""; statusFilter = "ALL" })
@@ -4474,7 +7582,7 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
                         LazyColumn(
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(bottom = 282.dp)
+                            contentPadding = PaddingValues(bottom = listBottomPadding)
                         ) {
                             items(sortedItems, key = { it.id }) { item ->
                                 PreAssemblyItemCard(item = item, vm = vm, readOnly = state.isCompleted)
@@ -4483,32 +7591,43 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
                     }
                 }
             }
-
-            state.message?.let { message ->
-                PreAssemblyMessageCard(message = message)
-            }
         }
 
-        PreAssemblyActionPanel(
-            hasItems = state.items.isNotEmpty(),
-            hasVisibleItems = filteredItems.isNotEmpty(),
-            hasReport = state.reportText.isNotBlank(),
-            hasActiveFilters = hasActiveFilters,
-            hasArchive = state.archive.isNotEmpty(),
-            isCompleted = state.isCompleted,
-            onOpenControls = { showControls = true },
-            onOpenBulkActions = { showBulkActions = true },
-            onBuildReport = { showPreview = vm.buildReport() },
-            onFinishAssembly = { showFinishDialog = true },
-            onShareReport = {
-                if (vm.buildReport()) {
-                    showPreview = true
-                }
-            },
+        AnimatedVisibility(
+            visible = state.message != null,
             modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 18.dp)
-        )
+                .align(Alignment.TopCenter)
+                .padding(horizontal = 14.dp, vertical = feedbackTopPadding),
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -it / 3 })
+        ) {
+            state.message?.let { FbsAssemblyMessage(text = it, onClose = vm::clearMessage) }
+        }
+
+        AnimatedVisibility(
+            visible = actionDockVisible,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(horizontal = screenPadding, vertical = if (compactScreen) 6.dp else 14.dp),
+            enter = fadeIn(animationSpec = tween(160)) + slideInVertically(initialOffsetY = { it / 3 }),
+            exit = fadeOut(animationSpec = tween(120)) + slideOutVertically(targetOffsetY = { it / 3 })
+        ) {
+            PreAssemblyActionPanel(
+                hasItems = state.items.isNotEmpty(),
+                hasVisibleItems = filteredItems.isNotEmpty(),
+                hasReport = state.reportText.isNotBlank(),
+                hasActiveFilters = hasActiveFilters,
+                hasArchive = state.archive.isNotEmpty(),
+                isCompleted = state.isCompleted,
+                compact = compactScreen,
+                onOpenControls = { showControls = true },
+                onOpenBulkActions = { showBulkActions = true },
+                onOpenArchive = { showArchiveDialog = true },
+                onBuildReport = { showPreview = vm.buildReport() },
+                onFinishAssembly = { showFinishDialog = true },
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 
     if (showControls) {
@@ -4635,37 +7754,165 @@ private fun PreAssemblyScreen(state: PreAssemblyUiState, vm: PreAssemblyViewMode
 }
 
 @Composable
-private fun PreAssemblyHeader(onBack: () -> Unit, onRefresh: () -> Unit, isLoading: Boolean) {
-    ModernCard(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+private fun PreAssemblyHeader(
+    onBack: () -> Unit,
+    onMore: () -> Unit,
+    onRefresh: () -> Unit,
+    isLoading: Boolean,
+    compact: Boolean = false,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    subtitle: String
+) {
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)
+    ) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(animationSpec = tween(160)) + expandVertically(expandFrom = Alignment.Top),
+            exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(shrinkTowards = Alignment.Top)
         ) {
-            AppIconActionButton(Icons.AutoMirrored.Outlined.ArrowBack, "Назад", onClick = onBack)
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    "Предварительная сборка Ozon",
-                    fontSize = 19.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MainTextColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 14.dp)
+            ) {
+                PreAssemblyDarkIconActionButton(
+                    Icons.AutoMirrored.Outlined.ArrowBack,
+                    "Назад",
+                    modifier = Modifier.size(if (compact) 44.dp else 68.dp),
+                    onClick = onBack
                 )
-                Text(
-                    "Ручная проверка наличия и списка на перемещение",
-                    color = MutedTextColor,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (compact) 3.dp else 6.dp)) {
+                    Text(
+                        if (compact) "Предсборка" else "Предсборка №1",
+                        fontSize = if (compact) 20.sp else 31.sp,
+                        lineHeight = if (compact) 23.sp else 36.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = FbsDarkText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        subtitle,
+                        color = FbsDarkMutedText,
+                        fontSize = if (compact) 9.sp else 13.sp,
+                        lineHeight = if (compact) 11.sp else 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                PreAssemblyDarkIconActionButton(
+                    Icons.Outlined.MoreVert,
+                    "Дополнительно",
+                    modifier = Modifier.size(if (compact) 44.dp else 68.dp),
+                    onClick = onMore
                 )
+                OutlinedIconButton(
+                    onClick = onRefresh,
+                    modifier = Modifier
+                        .size(if (compact) 44.dp else 68.dp)
+                        .alpha(if (isLoading) 0.55f else 1f),
+                    shape = RoundedCornerShape(if (compact) 14.dp else 24.dp),
+                    border = BorderStroke(1.dp, FbsDarkBorder)
+                ) {
+                    Icon(
+                        Icons.Outlined.FileDownload,
+                        contentDescription = "Загрузить заказы",
+                        tint = FbsNeonGreen,
+                        modifier = Modifier.size(if (compact) 22.dp else 38.dp)
+                    )
+                }
             }
-            AppIconActionButton(
-                icon = Icons.Outlined.FileDownload,
+        }
+
+        AnimatedVisibility(
+            visible = !expanded,
+            enter = fadeIn(animationSpec = tween(160)) + expandVertically(expandFrom = Alignment.Top),
+            exit = fadeOut(animationSpec = tween(120)) + shrinkVertically(shrinkTowards = Alignment.Top)
+        ) {
+            PreAssemblyCollapsedHeader(
+                onBack = onBack,
+                onMore = onMore,
+                onExpand = { onExpandedChange(true) },
+                onRefresh = onRefresh,
+                isLoading = isLoading,
+                compact = compact
+            )
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyCollapsedHeader(
+    onBack: () -> Unit,
+    onMore: () -> Unit,
+    onExpand: () -> Unit,
+    onRefresh: () -> Unit,
+    isLoading: Boolean,
+    compact: Boolean = false,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(if (compact) 18.dp else 22.dp)
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(if (compact) 44.dp else 50.dp)
+            .clip(shape)
+            .background(FbsDarkPanelAlt.copy(alpha = 0.96f))
+            .border(1.dp, FbsNeonGreen.copy(alpha = 0.28f), shape)
+            .clickable(onClick = onExpand)
+            .padding(start = 4.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        IconButton(onClick = onBack, modifier = Modifier.size(if (compact) 34.dp else 38.dp)) {
+            Icon(
+                Icons.AutoMirrored.Outlined.ArrowBack,
+                contentDescription = "Назад",
+                tint = FbsNeonGreen,
+                modifier = Modifier.size(if (compact) 20.dp else 22.dp)
+            )
+        }
+        Text(
+            "Предсборка Ozon",
+            modifier = Modifier.weight(1f),
+            color = FbsDarkText,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = if (compact) 15.sp else 16.sp,
+            lineHeight = if (compact) 17.sp else 18.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        IconButton(onClick = onMore, modifier = Modifier.size(if (compact) 34.dp else 38.dp)) {
+            Icon(
+                Icons.Outlined.MoreVert,
+                contentDescription = "Дополнительно",
+                tint = FbsNeonGreen,
+                modifier = Modifier.size(if (compact) 20.dp else 22.dp)
+            )
+        }
+        IconButton(
+            onClick = onRefresh,
+            modifier = Modifier
+                .size(if (compact) 34.dp else 38.dp)
+                .alpha(if (isLoading) 0.55f else 1f)
+        ) {
+            Icon(
+                Icons.Outlined.FileDownload,
                 contentDescription = "Загрузить заказы",
-                primary = true,
-                onClick = onRefresh,
-                modifier = Modifier.alpha(if (isLoading) 0.55f else 1f)
+                tint = FbsNeonGreen,
+                modifier = Modifier.size(if (compact) 20.dp else 22.dp)
+            )
+        }
+        IconButton(onClick = onExpand, modifier = Modifier.size(if (compact) 34.dp else 38.dp)) {
+            Icon(
+                Icons.Outlined.ExpandMore,
+                contentDescription = "Развернуть верх",
+                tint = FbsNeonGreen,
+                modifier = Modifier.size(if (compact) 22.dp else 24.dp)
             )
         }
     }
@@ -4673,16 +7920,16 @@ private fun PreAssemblyHeader(onBack: () -> Unit, onRefresh: () -> Unit, isLoadi
 
 @Composable
 private fun PreAssemblyLoadingCard() {
-    ModernCard(Modifier.fillMaxWidth()) {
+    PreAssemblyDarkCard(Modifier.fillMaxWidth()) {
         Row(
             Modifier.padding(18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            CircularProgressIndicator(color = AccentColor, strokeWidth = 3.dp, modifier = Modifier.size(30.dp))
+            CircularProgressIndicator(color = FbsNeonGreen, strokeWidth = 3.dp, modifier = Modifier.size(30.dp))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Загружаю заказы Ozon", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                Text("После загрузки позиции объединятся по артикулу", color = MutedTextColor, fontSize = 13.sp)
+                Text("Загружаю заказы Ozon", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("После загрузки позиции объединятся по артикулу", color = FbsDarkMutedText, fontSize = 13.sp)
             }
         }
     }
@@ -4690,45 +7937,45 @@ private fun PreAssemblyLoadingCard() {
 
 @Composable
 private fun PreAssemblyEmptyCard(onLoad: () -> Unit) {
-    ModernCard(Modifier.fillMaxWidth()) {
+    PreAssemblyDarkCard(Modifier.fillMaxWidth()) {
         Column(
             Modifier.padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            AppIconBubble(Icons.Outlined.Inventory2, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(58.dp))
-            Text("Заказы ещё не загружены", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 20.sp, textAlign = TextAlign.Center)
+            AppIconBubble(Icons.Outlined.Inventory2, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f), modifier = Modifier.size(58.dp))
+            Text("Заказы ещё не загружены", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 20.sp, textAlign = TextAlign.Center)
             Text(
                 "Нажмите кнопку ниже, чтобы получить список заказов Ozon для ручной проверки остатков.",
-                color = MutedTextColor,
+                color = FbsDarkMutedText,
                 textAlign = TextAlign.Center,
                 lineHeight = 20.sp
             )
-            AppPrimaryButton("Загрузить заказы Ozon", icon = Icons.Outlined.FileDownload, onClick = onLoad, modifier = Modifier.fillMaxWidth())
+            PreAssemblyDarkPrimaryButton("Загрузить заказы Ozon", icon = Icons.Outlined.FileDownload, onClick = onLoad, modifier = Modifier.fillMaxWidth())
         }
     }
 }
 
 @Composable
 private fun PreAssemblyErrorCard(message: String, onRetry: () -> Unit) {
-    ModernCard(Modifier.fillMaxWidth()) {
+    PreAssemblyDarkCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFFFE8E8)),
+                        .background(DangerColor.copy(alpha = 0.14f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Outlined.Close, contentDescription = null, tint = DangerColor)
                 }
                 Column(Modifier.weight(1f)) {
-                    Text("Не удалось загрузить данные", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                    Text(message, color = MutedTextColor, fontSize = 13.sp)
+                    Text("Не удалось загрузить данные", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text(message, color = FbsDarkMutedText, fontSize = 13.sp)
                 }
             }
-            AppPrimaryButton("Повторить загрузку", icon = Icons.Outlined.FileDownload, onClick = onRetry, modifier = Modifier.fillMaxWidth())
+            PreAssemblyDarkPrimaryButton("Повторить загрузку", icon = Icons.Outlined.FileDownload, onClick = onRetry, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -4745,94 +7992,192 @@ private fun PreAssemblySummaryPanel(
 ) {
     val progress = if (total == 0) 0f else checked.toFloat() / total.toFloat()
     val progressPercent = (progress * 100).toInt()
-    val progressColor = if (notChecked == 0 && total > 0) SuccessColor else AccentColor
-    val arrowRotation by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isExpanded) 180f else 0f,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 520f),
-        label = "pre_assembly_summary_arrow"
-    )
-    val cardScale by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (isExpanded) 1f else 0.985f,
-        animationSpec = spring(dampingRatio = 0.78f, stiffness = 420f),
-        label = "pre_assembly_summary_scale"
-    )
-
-    ModernCard(
-        Modifier
-            .fillMaxWidth()
-            .graphicsLayer {
-                scaleX = cardScale
-                scaleY = cardScale
-            }
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(18.dp))
-                    .clickable(onClick = onToggleExpanded)
-                    .padding(2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                AppIconBubble(Icons.Outlined.CheckCircle, tint = SuccessColor, background = Color(0xFFE9F8EF), modifier = Modifier.size(42.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Сводка проверки", fontWeight = FontWeight.Bold, color = MainTextColor, fontSize = 17.sp)
-                    Text("Проверено: $checked из $total позиций — $progressPercent%", color = MutedTextColor, fontSize = 13.sp)
-                }
-                StatusBadge("$progressPercent%", tone = if (notChecked == 0 && total > 0) BadgeTone.Green else BadgeTone.Blue)
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                        .border(1.dp, CardBorderColor, CircleShape),
-                    contentAlignment = Alignment.Center
+    val progressColor = if (notChecked == 0 && total > 0) SuccessColor else FbsNeonGreen
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        PreAssemblyDarkCard(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(22.dp)
+        ) {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(7.dp)
                 ) {
-                    Icon(
-                        Icons.Outlined.ExpandMore,
-                        contentDescription = if (isExpanded) "Свернуть сводку" else "Развернуть сводку",
-                        tint = MainTextColor,
-                        modifier = Modifier
-                            .size(22.dp)
-                            .rotate(arrowRotation)
+                    PreAssemblyProgressRing(progress = progress, color = progressColor, percent = progressPercent)
+                    PreAssemblySummaryMetric(
+                        title = "Прогресс",
+                        value = "$progressPercent%",
+                        valueColor = progressColor,
+                        modifier = Modifier.weight(1f)
+                    )
+                    PreAssemblyDashboardDivider()
+                    PreAssemblySummaryMetric(
+                        title = "Пров.",
+                        value = checked.toString(),
+                        suffix = "из $total",
+                        valueColor = progressColor,
+                        modifier = Modifier.weight(1f)
+                    )
+                    PreAssemblyDashboardDivider()
+                    PreAssemblySummaryMetric(
+                        title = "Всего",
+                        value = total.toString(),
+                        valueColor = FbsDarkText,
+                        modifier = Modifier.weight(1f)
                     )
                 }
+                PreAssemblyProgressBar(progress = progress, color = progressColor)
             }
-            PreAssemblyProgressBar(progress = progress, color = progressColor)
-            AnimatedVisibility(
-                visible = isExpanded,
-                enter = expandVertically(
-                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 390f),
-                    expandFrom = Alignment.Top
-                ) + fadeIn(animationSpec = tween(180)) + scaleIn(
-                    initialScale = 0.96f,
-                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 420f)
-                ),
-                exit = shrinkVertically(
-                    animationSpec = tween(190),
-                    shrinkTowards = Alignment.Top
-                ) + fadeOut(animationSpec = tween(120)) + scaleOut(
-                    targetScale = 0.96f,
-                    animationSpec = tween(160)
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            PreAssemblyStatusMetricCard(
+                title = "Есть",
+                value = available.toString(),
+                icon = Icons.Outlined.CheckCircle,
+                color = FbsNeonGreen,
+                modifier = Modifier.weight(1f)
+            )
+            PreAssemblyStatusMetricCard(
+                title = "Перем.",
+                value = toTransfer.toString(),
+                icon = Icons.AutoMirrored.Outlined.ArrowForward,
+                color = DangerColor,
+                modifier = Modifier.weight(1f)
+            )
+            PreAssemblyStatusMetricCard(
+                title = "Не пров.",
+                value = notChecked.toString(),
+                icon = Icons.Outlined.WarningAmber,
+                color = FbsDarkMutedText,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyProgressRing(progress: Float, color: Color, percent: Int, modifier: Modifier = Modifier) {
+    Box(
+        modifier.size(52.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(Modifier.fillMaxSize()) {
+            val strokeWidth = 6.dp.toPx()
+            val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
+            val topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
+            drawArc(
+                color = FbsDarkBorder.copy(alpha = 0.78f),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            )
+            drawArc(
+                color = color,
+                startAngle = -90f,
+                sweepAngle = 360f * progress.coerceIn(0f, 1f),
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            )
+        }
+        Text(
+            "$percent%",
+            color = FbsDarkText,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 14.sp,
+            lineHeight = 15.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun PreAssemblySummaryMetric(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    suffix: String? = null,
+    valueColor: Color = FbsNeonGreen
+) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(
+            title,
+            color = FbsDarkMutedText,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(
+                value,
+                color = valueColor,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 22.sp,
+                lineHeight = 23.sp,
+                maxLines = 1
+            )
+            if (suffix != null) {
+                Text(
+                    suffix,
+                    color = FbsDarkMutedText,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                    maxLines = 1
                 )
-            ) {
-                BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    if (maxWidth < 420.dp) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            PreAssemblyMetricRow("Есть на остатке", available.toString(), Color(0xFFE9F8EF), SuccessColor)
-                            PreAssemblyMetricRow("К перемещению", toTransfer.toString(), Color(0xFFFFE8E8), DangerColor)
-                            PreAssemblyMetricRow("Не проверено", notChecked.toString(), Color(0xFFF2F4F7), MutedTextColor)
-                        }
-                    } else {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            PreAssemblyMetricRow("Есть", available.toString(), Color(0xFFE9F8EF), SuccessColor, Modifier.weight(1f))
-                            PreAssemblyMetricRow("Переместить", toTransfer.toString(), Color(0xFFFFE8E8), DangerColor, Modifier.weight(1f))
-                            PreAssemblyMetricRow("Не проверено", notChecked.toString(), Color(0xFFF2F4F7), MutedTextColor, Modifier.weight(1f))
-                        }
-                    }
-                }
             }
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyDashboardDivider() {
+    Box(
+        Modifier
+            .width(1.dp)
+            .height(42.dp)
+            .background(FbsDarkBorder.copy(alpha = 0.92f))
+    )
+}
+
+@Composable
+private fun PreAssemblyStatusMetricCard(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(15.dp)
+    Row(
+        modifier
+            .heightIn(min = 70.dp)
+            .clip(shape)
+            .background(color.copy(alpha = if (color == FbsDarkMutedText) 0.09f else 0.12f))
+            .border(1.dp, color.copy(alpha = if (color == FbsDarkMutedText) 0.28f else 0.42f), shape)
+            .padding(horizontal = 7.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
+    ) {
+        Box(
+            Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(21.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = FbsDarkMutedText, fontSize = 10.sp, lineHeight = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(value, color = color, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, lineHeight = 21.sp, maxLines = 1)
         }
     }
 }
@@ -4844,7 +8189,7 @@ private fun PreAssemblyProgressBar(progress: Float, color: Color) {
             .fillMaxWidth()
             .height(9.dp)
             .clip(RoundedCornerShape(999.dp))
-            .background(Color(0xFFE8EDF5))
+            .background(FbsDarkBorder.copy(alpha = 0.72f))
     ) {
         Box(
             Modifier
@@ -4853,21 +8198,6 @@ private fun PreAssemblyProgressBar(progress: Float, color: Color) {
                 .clip(RoundedCornerShape(999.dp))
                 .background(color)
         )
-    }
-}
-
-@Composable
-private fun PreAssemblyMetricRow(title: String, value: String, background: Color, valueColor: Color, modifier: Modifier = Modifier) {
-    Row(
-        modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(background)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(title, color = MutedTextColor, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        Text(value, color = valueColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
     }
 }
 
@@ -4884,10 +8214,12 @@ private fun PreAssemblyControlPanel(
     modifier: Modifier = Modifier
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        FloatingSearchInput(
+        FbsAssemblyTextField(
             value = searchQuery,
             onValueChange = onSearchQueryChange,
+            label = "Поиск",
             placeholder = "Поиск: артикул, SKU, заказ, название",
+            leadingIcon = Icons.Outlined.Search,
             modifier = Modifier.fillMaxWidth()
         )
         BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -4895,7 +8227,7 @@ private fun PreAssemblyControlPanel(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.fillMaxWidth())
                     PreAssemblySortDropdown(sortOrder, onSortOrderChange, Modifier.fillMaxWidth())
-                    AppSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
+                    PreAssemblyDarkSecondaryButton("Обновить заказы", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -4903,7 +8235,7 @@ private fun PreAssemblyControlPanel(
                         PreAssemblyFilterDropdown(statusFilter, onStatusFilterChange, Modifier.weight(1f))
                         PreAssemblySortDropdown(sortOrder, onSortOrderChange, Modifier.weight(1f))
                     }
-                    AppSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
+                    PreAssemblyDarkSecondaryButton("Обновить", icon = Icons.Outlined.FileDownload, enabled = !isLoading, onClick = onReload, modifier = Modifier.fillMaxWidth())
                 }
             }
         }
@@ -4921,31 +8253,31 @@ private fun PreAssemblyFilterDropdown(selectedKey: String, onSelected: (String) 
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
                 .clip(RoundedCornerShape(15.dp))
-                .background(InputContainerColor)
-                .border(1.dp, CardBorderColor, RoundedCornerShape(15.dp))
+                .background(FbsDarkPanelAlt)
+                .border(1.dp, FbsDarkBorder, RoundedCornerShape(15.dp))
                 .clickable { expanded = true }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = AccentColor, modifier = Modifier.size(18.dp))
+            Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(18.dp))
             Column(Modifier.weight(1f)) {
-                Text("Фильтр статуса", color = MutedTextColor, fontSize = 11.sp, maxLines = 1)
-                Text(selectedTitle, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Фильтр статуса", color = FbsDarkMutedText, fontSize = 11.sp, maxLines = 1)
+                Text(selectedTitle, color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MutedTextColor, modifier = Modifier.rotate(if (expanded) 180f else 0f))
+            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.rotate(if (expanded) 180f else 0f))
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(Color.White)) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(FbsDarkPanelAlt)) {
             options.forEach { (key, title) ->
                 DropdownMenuItem(
-                    text = { Text(title, color = MainTextColor, fontWeight = if (key == selectedKey) FontWeight.Bold else FontWeight.Normal) },
+                    text = { Text(title, color = FbsDarkText, fontWeight = if (key == selectedKey) FontWeight.Bold else FontWeight.Normal) },
                     onClick = {
                         onSelected(key)
                         expanded = false
                     },
                     leadingIcon = {
                         if (key == "ALL") {
-                            Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = AccentColor)
+                            Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = FbsNeonGreen)
                         } else {
                             val status = PreAssemblyStatus.valueOf(key)
                             PreAssemblyStatusDot(status)
@@ -4967,30 +8299,30 @@ private fun PreAssemblySortDropdown(selected: PreAssemblySortOrder, onSelected: 
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
                 .clip(RoundedCornerShape(15.dp))
-                .background(InputContainerColor)
-                .border(1.dp, CardBorderColor, RoundedCornerShape(15.dp))
+                .background(FbsDarkPanelAlt)
+                .border(1.dp, FbsDarkBorder, RoundedCornerShape(15.dp))
                 .clickable { expanded = true }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = AccentColor, modifier = Modifier.size(18.dp))
+            Icon(Icons.Outlined.MoreVert, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(18.dp))
             Column(Modifier.weight(1f)) {
-                Text("Сортировка", color = MutedTextColor, fontSize = 11.sp, maxLines = 1)
-                Text(selected.title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Сортировка", color = FbsDarkMutedText, fontSize = 11.sp, maxLines = 1)
+                Text(selected.title, color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MutedTextColor, modifier = Modifier.rotate(if (expanded) 180f else 0f))
+            Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.rotate(if (expanded) 180f else 0f))
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(Color.White)) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(FbsDarkPanelAlt)) {
             PreAssemblySortOrder.values().forEach { order ->
                 DropdownMenuItem(
-                    text = { Text(order.title, color = MainTextColor, fontWeight = if (order == selected) FontWeight.Bold else FontWeight.Normal) },
+                    text = { Text(order.title, color = FbsDarkText, fontWeight = if (order == selected) FontWeight.Bold else FontWeight.Normal) },
                     onClick = {
                         onSelected(order)
                         expanded = false
                     },
                     leadingIcon = {
-                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = if (order == selected) AccentColor else MutedTextColor)
+                        Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = if (order == selected) FbsNeonGreen else FbsDarkMutedText)
                     }
                 )
             }
@@ -5002,15 +8334,17 @@ private fun PreAssemblySortDropdown(selected: PreAssemblySortOrder, onSelected: 
 private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel, readOnly: Boolean = false) {
     val hasComment = item.comment.isNotBlank()
     val showTransferInput = item.status == PreAssemblyStatus.NOT_AVAILABLE || item.status == PreAssemblyStatus.NEED_TRANSFER
+    val orderCount = remember(item.orderId) { item.orderId.split(',').count { it.isNotBlank() }.coerceAtLeast(1) }
     var showEditor by rememberSaveable(item.id) { mutableStateOf(false) }
     var showCommentEditor by rememberSaveable(item.id) { mutableStateOf(false) }
 
-    ModernCard(
+    PreAssemblyDarkCard(
         Modifier
             .fillMaxWidth()
-            .border(1.dp, PreAssemblyStatusColor(item.status).copy(alpha = 0.22f), RoundedCornerShape(24.dp))
+            .border(1.dp, PreAssemblyStatusColor(item.status).copy(alpha = 0.42f), RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp)
     ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -5018,14 +8352,6 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel,
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(4.dp)
-                        .fillMaxHeight()
-                        .heightIn(min = 72.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(PreAssemblyStatusColor(item.status).copy(alpha = 0.82f))
-                )
                 PreAssemblyProductPhoto(
                     imageUrl = item.imageUrl,
                     status = item.status,
@@ -5038,22 +8364,41 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel,
                         .padding(start = 2.dp, top = 1.dp),
                     verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PreAssemblyStatusPill(item.status)
+                        PreAssemblyQuantityChip(item.requiredQuantity)
+                    }
                     Text(
                         item.name,
-                        color = MainTextColor,
-                        fontWeight = FontWeight.Bold,
+                        color = FbsDarkText,
+                        fontWeight = FontWeight.ExtraBold,
                         fontSize = 13.sp,
-                        lineHeight = 16.sp
+                        lineHeight = 16.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        PreAssemblyMetaChip("Арт. ${item.offerId}", modifier = Modifier.widthIn(max = 132.dp))
-                        PreAssemblyQuantityChip(item.requiredQuantity)
+                        PreAssemblyMetaChip(
+                            "Арт. ${item.offerId}",
+                            modifier = Modifier
+                                .weight(1f)
+                                .widthIn(max = 150.dp)
+                        )
+                        PreAssemblyMetaChip(
+                            if (orderCount == 1) "1 заказ" else "$orderCount заказов",
+                            background = FbsDarkBorder,
+                            contentColor = FbsDarkMutedText
+                        )
                         if (!item.sku.isNullOrBlank()) {
-                            PreAssemblyMetaChip("SKU", background = Color(0xFFF4F6FB), contentColor = MutedTextColor)
+                            PreAssemblyMetaChip("SKU", background = FbsDarkBorder, contentColor = FbsDarkMutedText)
                         }
                     }
                 }
@@ -5067,10 +8412,10 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel,
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFFF8FAFF))
-                        .border(1.dp, CardBorderColor.copy(alpha = 0.65f), RoundedCornerShape(14.dp))
-                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(FbsDarkPanelAlt.copy(alpha = 0.72f))
+                        .border(1.dp, FbsDarkBorder, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 11.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(if (showTransferInput && hasComment) 6.dp else 0.dp)
                 ) {
                     if (showTransferInput) {
@@ -5082,7 +8427,7 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel,
                             Text(
                                 "К перемещению",
                                 modifier = Modifier.weight(1f),
-                                color = MutedTextColor,
+                                color = FbsDarkMutedText,
                                 fontSize = 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -5101,10 +8446,10 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel,
                             verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Icon(Icons.Outlined.Description, contentDescription = null, tint = AccentColor, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Outlined.Description, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(16.dp))
                             Text(
                                 item.comment,
-                                color = MutedTextColor,
+                                color = FbsDarkMutedText,
                                 fontSize = 12.sp,
                                 lineHeight = 15.sp,
                                 maxLines = 2,
@@ -5117,41 +8462,20 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel,
             }
 
             Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp)
             ) {
-                PreAssemblyQuickStatusButton(
-                    icon = Icons.Outlined.CheckCircle,
-                    contentDescription = "Есть",
-                    color = SuccessColor,
-                    selected = item.status == PreAssemblyStatus.AVAILABLE,
-                    enabled = !readOnly,
-                    onClick = { vm.updateStatus(item.id, PreAssemblyStatus.AVAILABLE) }
-                )
-                PreAssemblyQuickStatusButton(
-                    icon = Icons.Outlined.Close,
-                    contentDescription = "Нет",
-                    color = DangerColor,
-                    selected = item.status == PreAssemblyStatus.NOT_AVAILABLE,
-                    enabled = !readOnly,
-                    onClick = { vm.updateStatus(item.id, PreAssemblyStatus.NOT_AVAILABLE) }
-                )
-                PreAssemblyQuickStatusButton(
-                    icon = Icons.Outlined.Archive,
-                    contentDescription = "Нужно переместить",
-                    color = WarningColor,
-                    selected = item.status == PreAssemblyStatus.NEED_TRANSFER,
-                    enabled = !readOnly,
-                    onClick = { vm.updateStatus(item.id, PreAssemblyStatus.NEED_TRANSFER) }
-                )
-                PreAssemblyQuickCommentButton(
+                PreAssemblyItemActionBar(
+                    status = item.status,
                     hasComment = hasComment,
                     enabled = !readOnly,
-                    onClick = { showCommentEditor = true }
+                    onAvailable = { vm.updateStatus(item.id, PreAssemblyStatus.AVAILABLE) },
+                    onTransfer = { vm.updateStatus(item.id, PreAssemblyStatus.NEED_TRANSFER) },
+                    onUnchecked = { vm.updateStatus(item.id, PreAssemblyStatus.NOT_CHECKED) },
+                    onSkip = { vm.updateStatus(item.id, PreAssemblyStatus.NOT_CHECKED) },
+                    onComment = { showCommentEditor = true }
                 )
-                Spacer(Modifier.weight(1f))
-                PreAssemblyQuickCardButton(enabled = !readOnly, onClick = { showEditor = true })
             }
         }
     }
@@ -5173,7 +8497,144 @@ private fun PreAssemblyItemCard(item: PreAssemblyItem, vm: PreAssemblyViewModel,
     }
 }
 
-private val preAssemblyProductImageCache = java.util.concurrent.ConcurrentHashMap<String, ImageBitmap>()
+@Composable
+private fun PreAssemblyItemActionBar(
+    status: PreAssemblyStatus,
+    hasComment: Boolean,
+    enabled: Boolean,
+    onAvailable: () -> Unit,
+    onTransfer: () -> Unit,
+    onUnchecked: () -> Unit,
+    onSkip: () -> Unit,
+    onComment: () -> Unit
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp))
+    ) {
+        HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.80f))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(62.dp)
+                .padding(top = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            PreAssemblyCardAction(
+                text = "Есть",
+                icon = Icons.Outlined.CheckCircle,
+                color = FbsNeonGreen,
+                selected = status == PreAssemblyStatus.AVAILABLE,
+                enabled = enabled,
+                onClick = onAvailable,
+                modifier = Modifier.weight(1f)
+            )
+            PreAssemblyCardActionDivider()
+            PreAssemblyCardAction(
+                text = "Перем.",
+                icon = Icons.AutoMirrored.Outlined.ArrowForward,
+                color = DangerColor,
+                selected = status == PreAssemblyStatus.NOT_AVAILABLE || status == PreAssemblyStatus.NEED_TRANSFER,
+                enabled = enabled,
+                onClick = onTransfer,
+                modifier = Modifier.weight(1f)
+            )
+            PreAssemblyCardActionDivider()
+            PreAssemblyCardAction(
+                text = "Не пров.",
+                icon = Icons.Outlined.WarningAmber,
+                color = FbsDarkMutedText,
+                selected = status == PreAssemblyStatus.NOT_CHECKED,
+                enabled = enabled,
+                onClick = onUnchecked,
+                modifier = Modifier.weight(1f)
+            )
+            PreAssemblyCardActionDivider()
+            PreAssemblyCardAction(
+                text = "Пропуск",
+                icon = Icons.Outlined.Description,
+                color = FbsDarkMutedText,
+                enabled = enabled,
+                onClick = onSkip,
+                modifier = Modifier.weight(1f)
+            )
+            PreAssemblyCardActionDivider()
+            PreAssemblyCardAction(
+                text = "Заметка",
+                icon = Icons.Outlined.Edit,
+                color = FbsNeonGreen,
+                selected = hasComment,
+                enabled = enabled,
+                onClick = onComment,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PreAssemblyCardAction(
+    text: String,
+    icon: ImageVector,
+    color: Color,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    val tint = if (selected) color else if (color == FbsNeonGreen) color else FbsDarkMutedText
+    Column(
+        modifier
+            .fillMaxHeight()
+            .alpha(if (enabled) 1f else 0.45f)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(if (selected) color.copy(alpha = 0.16f) else Color.Transparent)
+                    .border(2.dp, tint.copy(alpha = if (selected) 0.96f else 0.78f), CircleShape)
+            )
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text,
+            color = if (selected) FbsDarkText else FbsDarkMutedText,
+            fontSize = 9.sp,
+            lineHeight = 10.sp,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun PreAssemblyCardActionDivider() {
+    Box(
+        Modifier
+            .width(1.dp)
+            .height(38.dp)
+            .background(FbsDarkBorder.copy(alpha = 0.88f))
+    )
+}
+
+private const val PRODUCT_IMAGE_CACHE_MAX_KB = 12 * 1024
+
+private val preAssemblyProductImageCache = object : LruCache<String, ImageBitmap>(PRODUCT_IMAGE_CACHE_MAX_KB) {
+    override fun sizeOf(key: String, value: ImageBitmap): Int =
+        ((value.width.toLong() * value.height.toLong() * 4L) / 1024L)
+            .coerceAtLeast(1L)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+}
 
 @Composable
 private fun PreAssemblyProductPhoto(
@@ -5184,18 +8645,18 @@ private fun PreAssemblyProductPhoto(
     val imageBitmap by produceState<ImageBitmap?>(initialValue = null, imageUrl) {
         value = imageUrl?.let { url ->
             preAssemblyProductImageCache[url] ?: loadPreAssemblyProductImage(url)?.also { bitmap ->
-                preAssemblyProductImageCache[url] = bitmap
+                preAssemblyProductImageCache.put(url, bitmap)
             }
         }
     }
-    val shape = RoundedCornerShape(15.dp)
+    val shape = RoundedCornerShape(16.dp)
 
     Box(
         modifier
-            .size(width = 72.dp, height = 96.dp)
+            .size(width = 82.dp, height = 106.dp)
             .clip(shape)
-            .background(PreAssemblyStatusBackground(status))
-            .border(1.dp, PreAssemblyStatusColor(status).copy(alpha = 0.22f), shape),
+            .background(FbsDarkPanelAlt)
+            .border(1.2.dp, PreAssemblyStatusColor(status).copy(alpha = 0.50f), shape),
         contentAlignment = Alignment.Center
     ) {
         if (imageBitmap != null) {
@@ -5210,9 +8671,18 @@ private fun PreAssemblyProductPhoto(
                 Icons.Outlined.Inventory2,
                 contentDescription = null,
                 tint = PreAssemblyStatusColor(status),
-                modifier = Modifier.size(23.dp)
+                modifier = Modifier.size(24.dp)
             )
         }
+        Box(
+            Modifier
+                .align(Alignment.TopEnd)
+                .padding(6.dp)
+                .size(11.dp)
+                .clip(CircleShape)
+                .background(PreAssemblyStatusColor(status))
+                .border(2.dp, FbsDarkPanelAlt, CircleShape)
+        )
     }
 }
 
@@ -5260,11 +8730,11 @@ private fun PreAssemblyQuickStatusButton(
 ) {
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(42.dp)
             .alpha(if (enabled) 1f else 0.45f)
             .clip(CircleShape)
-            .background(if (selected) color else color.copy(alpha = 0.10f))
-            .border(1.dp, color.copy(alpha = if (selected) 0.95f else 0.28f), CircleShape)
+            .background(if (selected) color else FbsDarkPanelAlt)
+            .border(1.2.dp, color.copy(alpha = if (selected) 0.95f else 0.42f), CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -5272,7 +8742,7 @@ private fun PreAssemblyQuickStatusButton(
             icon,
             contentDescription = contentDescription,
             tint = if (selected) Color.White else color,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(21.dp)
         )
     }
 }
@@ -5281,19 +8751,19 @@ private fun PreAssemblyQuickStatusButton(
 private fun PreAssemblyQuickCommentButton(hasComment: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(42.dp)
             .alpha(if (enabled) 1f else 0.45f)
             .clip(CircleShape)
-            .background(if (hasComment) AccentColor.copy(alpha = 0.12f) else Color.White)
-            .border(1.dp, if (hasComment) AccentColor.copy(alpha = 0.38f) else CardBorderColor, CircleShape)
+            .background(if (hasComment) FbsNeonGreen.copy(alpha = 0.12f) else FbsDarkPanelAlt)
+            .border(1.dp, if (hasComment) FbsNeonGreen.copy(alpha = 0.42f) else FbsDarkBorder, CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             Icons.Outlined.Description,
             contentDescription = "Комментарий",
-            tint = if (hasComment) AccentColor else MutedTextColor,
-            modifier = Modifier.size(19.dp)
+            tint = if (hasComment) FbsNeonGreen else FbsDarkMutedText,
+            modifier = Modifier.size(20.dp)
         )
         if (hasComment) {
             Box(
@@ -5301,8 +8771,8 @@ private fun PreAssemblyQuickCommentButton(hasComment: Boolean, enabled: Boolean 
                     .align(Alignment.TopEnd)
                     .size(10.dp)
                     .clip(CircleShape)
-                    .background(SuccessColor)
-                    .border(1.dp, Color.White, CircleShape)
+                    .background(FbsNeonGreen)
+                    .border(1.dp, FbsDarkPanel, CircleShape)
             )
         }
     }
@@ -5312,19 +8782,19 @@ private fun PreAssemblyQuickCommentButton(hasComment: Boolean, enabled: Boolean 
 private fun PreAssemblyQuickCardButton(enabled: Boolean = true, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(42.dp)
             .alpha(if (enabled) 1f else 0.45f)
             .clip(CircleShape)
-            .background(Color.White)
-            .border(1.dp, CardBorderColor, CircleShape)
+            .background(FbsDarkPanelAlt)
+            .border(1.dp, FbsDarkBorder, CircleShape)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             Icons.Outlined.Inventory2,
             contentDescription = "Открыть полную карточку",
-            tint = MainTextColor,
-            modifier = Modifier.size(19.dp)
+            tint = FbsNeonGreen,
+            modifier = Modifier.size(20.dp)
         )
     }
 }
@@ -5338,22 +8808,22 @@ private fun PreAssemblyCommentDialog(
     var draft by rememberSaveable(item.id, item.comment) { mutableStateOf(item.comment) }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        PreAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AppIconBubble(Icons.Outlined.Description, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(42.dp))
+                    AppIconBubble(Icons.Outlined.Description, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f), modifier = Modifier.size(42.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Комментарий", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text(item.name, color = MutedTextColor, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text("Комментарий", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(item.name, color = FbsDarkMutedText, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                    PreAssemblyDarkIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
 
-                ModernTextField(
+                FbsAssemblyTextField(
                     value = draft,
                     onValueChange = { draft = it },
                     label = "Примечание к товару",
@@ -5363,7 +8833,7 @@ private fun PreAssemblyCommentDialog(
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppSecondaryButton(
+                    PreAssemblyDarkSecondaryButton(
                         "Очистить",
                         icon = Icons.Outlined.Delete,
                         danger = true,
@@ -5373,7 +8843,7 @@ private fun PreAssemblyCommentDialog(
                         },
                         modifier = Modifier.weight(1f)
                     )
-                    AppPrimaryButton(
+                    PreAssemblyDarkPrimaryButton(
                         "Сохранить",
                         icon = Icons.Outlined.CheckCircle,
                         onClick = {
@@ -5397,7 +8867,7 @@ private fun PreAssemblyStatusDropdown(selected: PreAssemblyStatus, onSelected: (
                 .fillMaxWidth()
                 .heightIn(min = 52.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(Color.White)
+                .background(FbsDarkPanelAlt)
                 .border(1.dp, PreAssemblyStatusColor(selected).copy(alpha = 0.45f), RoundedCornerShape(16.dp))
                 .clickable { expanded = true }
                 .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -5406,18 +8876,18 @@ private fun PreAssemblyStatusDropdown(selected: PreAssemblyStatus, onSelected: (
         ) {
             PreAssemblyStatusDot(selected)
             Column(Modifier.weight(1f)) {
-                Text("Статус проверки", color = MutedTextColor, fontSize = 11.sp, maxLines = 1)
-                Text(selected.title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Статус проверки", color = FbsDarkMutedText, fontSize = 11.sp, maxLines = 1)
+                Text(selected.title, color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = PreAssemblyStatusColor(selected), modifier = Modifier.rotate(if (expanded) 180f else 0f))
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(Color.White)) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(FbsDarkPanelAlt)) {
             PreAssemblyStatus.values().forEach { status ->
                 DropdownMenuItem(
                     text = {
                         Column {
-                            Text(status.title, color = MainTextColor, fontWeight = if (status == selected) FontWeight.Bold else FontWeight.SemiBold)
-                            Text(PreAssemblyStatusHint(status), color = MutedTextColor, fontSize = 12.sp)
+                            Text(status.title, color = FbsDarkText, fontWeight = if (status == selected) FontWeight.Bold else FontWeight.SemiBold)
+                            Text(PreAssemblyStatusHint(status), color = FbsDarkMutedText, fontSize = 12.sp)
                         }
                     },
                     leadingIcon = { PreAssemblyStatusDot(status) },
@@ -5433,16 +8903,22 @@ private fun PreAssemblyStatusDropdown(selected: PreAssemblyStatus, onSelected: (
 
 @Composable
 private fun PreAssemblyStatusPill(status: PreAssemblyStatus) {
+    val title = when (status) {
+        PreAssemblyStatus.NOT_CHECKED -> "Не проверено"
+        PreAssemblyStatus.AVAILABLE -> "Есть"
+        PreAssemblyStatus.NOT_AVAILABLE -> "Нет"
+        PreAssemblyStatus.NEED_TRANSFER -> "Переместить"
+    }
     Row(
         Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(PreAssemblyStatusBackground(status))
-            .padding(horizontal = 9.dp, vertical = 6.dp),
+            .padding(horizontal = 8.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        PreAssemblyStatusDot(status, size = 7.dp)
-        Text(status.title, color = PreAssemblyStatusColor(status), fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+        PreAssemblyStatusDot(status, size = 6.dp)
+        Text(title, color = PreAssemblyStatusColor(status), fontWeight = FontWeight.Bold, fontSize = 10.sp, maxLines = 1)
     }
 }
 
@@ -5459,19 +8935,19 @@ private fun PreAssemblyStatusDot(status: PreAssemblyStatus, size: androidx.compo
 @Composable
 private fun PreAssemblyInfoLine(title: String, value: String) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-        Text(title, color = MutedTextColor, fontSize = 13.sp, modifier = Modifier.weight(0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(value, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, textAlign = TextAlign.End, modifier = Modifier.weight(1.2f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(title, color = FbsDarkMutedText, fontSize = 13.sp, modifier = Modifier.weight(0.8f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, textAlign = TextAlign.End, modifier = Modifier.weight(1.2f), maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
 private fun PreAssemblyNoResultsCard(onReset: () -> Unit) {
-    ModernCard(Modifier.fillMaxWidth()) {
+    PreAssemblyDarkCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            AppIconBubble(Icons.Outlined.Search, tint = MutedTextColor, background = Color(0xFFF2F4F7))
-            Text("Ничего не найдено", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Text("Очистите поиск или смените фильтр статуса.", color = MutedTextColor, textAlign = TextAlign.Center)
-            AppSecondaryButton("Сбросить фильтры", icon = Icons.Outlined.Close, onClick = onReset, modifier = Modifier.fillMaxWidth())
+            AppIconBubble(Icons.Outlined.Search, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f))
+            Text("Ничего не найдено", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Text("Очистите поиск или смените фильтр статуса.", color = FbsDarkMutedText, textAlign = TextAlign.Center)
+            PreAssemblyDarkSecondaryButton("Сбросить фильтры", icon = Icons.Outlined.Close, onClick = onReset, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -5479,25 +8955,75 @@ private fun PreAssemblyNoResultsCard(onReset: () -> Unit) {
 
 
 @Composable
-private fun PreAssemblyVisibleInfoRow(visibleCount: Int, totalCount: Int, sortTitle: String, isCompleted: Boolean) {
+private fun PreAssemblyVisibleInfoRow(
+    visibleCount: Int,
+    totalCount: Int,
+    sortTitle: String,
+    isCompleted: Boolean,
+    hasActiveFilters: Boolean,
+    onOpenFilters: () -> Unit
+) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (isCompleted) Color(0xFFE9F8EF) else Color(0xFFF7F9FF))
-            .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(16.dp))
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (isCompleted) SuccessColor.copy(alpha = 0.14f) else FbsDarkPanelAlt.copy(alpha = 0.96f))
+            .border(1.dp, if (isCompleted) SuccessColor.copy(alpha = 0.38f) else FbsDarkBorder, RoundedCornerShape(18.dp))
+            .padding(horizontal = 9.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = if (isCompleted) SuccessColor else AccentColor, modifier = Modifier.size(18.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text("Видимых позиций: $visibleCount из $totalCount", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-            Text("Сортировка: $sortTitle", color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(FbsNeonGreen.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Outlined.Inventory2, contentDescription = null, tint = if (isCompleted) SuccessColor else FbsNeonGreen, modifier = Modifier.size(22.dp))
         }
-        if (isCompleted) {
-            StatusBadge("Завершена", tone = BadgeTone.Green)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                "Видимых: $visibleCount из $totalCount",
+                color = FbsDarkText,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 14.sp,
+                lineHeight = 16.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text("Сорт.: $sortTitle", color = FbsDarkMutedText, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        PreAssemblyFilterButton(
+            active = hasActiveFilters,
+            onClick = onOpenFilters
+        )
+    }
+}
+
+@Composable
+private fun PreAssemblyFilterButton(active: Boolean, onClick: () -> Unit) {
+    val color = if (active) Color.Black else FbsNeonGreen
+    Button(
+        onClick = onClick,
+        shape = RoundedCornerShape(15.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (active) FbsNeonGreen else Color.Transparent,
+            contentColor = color
+        ),
+        border = BorderStroke(1.dp, FbsNeonGreen.copy(alpha = if (active) 0.88f else 0.54f)),
+        modifier = Modifier.height(40.dp)
+    ) {
+        Icon(Icons.Outlined.Search, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(
+            "Фильтры",
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            lineHeight = 14.sp,
+            maxLines = 1
+        )
     }
 }
 
@@ -5508,17 +9034,17 @@ private fun PreAssemblyCompletedBanner(completedAt: String?, hasProblems: Boolea
         hasProblems -> "Завершена с проблемами"
         else -> "Завершена без проблем"
     }
-    ModernCard(Modifier.fillMaxWidth()) {
+    PreAssemblyDarkCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                AppIconBubble(Icons.Outlined.CheckCircle, tint = SuccessColor, background = Color(0xFFE9F8EF), modifier = Modifier.size(42.dp))
+                AppIconBubble(Icons.Outlined.CheckCircle, tint = SuccessColor, background = SuccessColor.copy(alpha = 0.14f), modifier = Modifier.size(42.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("Дата завершения: ${completedAt ?: "—"}", color = MutedTextColor, fontSize = 13.sp)
+                    Text(title, color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Дата завершения: ${completedAt ?: "—"}", color = FbsDarkMutedText, fontSize = 13.sp)
                 }
             }
-            Text("Позиции заблокированы от случайных изменений. Для исправлений верните сборку в работу.", color = MutedTextColor, fontSize = 13.sp, lineHeight = 17.sp)
-            AppSecondaryButton("Вернуть в работу", icon = Icons.Outlined.Archive, onClick = onReturnToWork, modifier = Modifier.fillMaxWidth())
+            Text("Позиции заблокированы от случайных изменений. Для исправлений верните сборку в работу.", color = FbsDarkMutedText, fontSize = 13.sp, lineHeight = 17.sp)
+            PreAssemblyDarkSecondaryButton("Вернуть в работу", icon = Icons.Outlined.Archive, onClick = onReturnToWork, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -5529,20 +9055,21 @@ private fun PreAssemblyArchiveDialog(
     onOpenEntry: (Long) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val sortedArchive = remember(archive) { archive.sortedByDescending { it.completedAt } }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        PreAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AppIconBubble(Icons.Outlined.Archive, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(42.dp))
+                    AppIconBubble(Icons.Outlined.Archive, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f), modifier = Modifier.size(42.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Архив сборок", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                        Text("Завершённые предварительные сборки сохраняются здесь автоматически.", color = MutedTextColor, fontSize = 13.sp)
+                        Text("Архив сборок", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Завершённые предварительные сборки сохраняются здесь автоматически.", color = FbsDarkMutedText, fontSize = 13.sp)
                     }
-                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                    PreAssemblyDarkIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
                 if (archive.isEmpty()) {
                     PreAssemblyMessageCard("Архив пуст. Завершите предварительную сборку, чтобы она появилась здесь.")
@@ -5553,7 +9080,7 @@ private fun PreAssemblyArchiveDialog(
                             .heightIn(max = 520.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(archive.sortedByDescending { it.completedAt }, key = { it.id }) { entry ->
+                        items(sortedArchive, key = { it.id }) { entry ->
                             PreAssemblyArchiveRow(entry = entry, onOpen = { onOpenEntry(entry.id) })
                         }
                     }
@@ -5569,37 +9096,41 @@ private fun PreAssemblyArchiveRow(entry: PreAssemblyArchiveEntry, onOpen: () -> 
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color.White)
-            .border(1.dp, CardBorderColor, RoundedCornerShape(16.dp))
+            .background(FbsDarkPanelAlt)
+            .border(1.dp, FbsDarkBorder, RoundedCornerShape(16.dp))
             .clickable(onClick = onOpen)
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(entry.title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(entry.resultTitle, color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(entry.title, color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(entry.resultTitle, color = FbsDarkMutedText, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            StatusBadge("${entry.total} поз.", tone = if (entry.toTransfer == 0 && entry.notChecked == 0) BadgeTone.Green else BadgeTone.Blue)
+            PreAssemblyMetaChip(
+                "${entry.total} поз.",
+                background = if (entry.toTransfer == 0 && entry.notChecked == 0) SuccessColor.copy(alpha = 0.14f) else FbsNeonGreen.copy(alpha = 0.14f),
+                contentColor = if (entry.toTransfer == 0 && entry.notChecked == 0) SuccessColor else FbsNeonGreen
+            )
         }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             if (maxWidth < 300.dp) {
                 Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        PreAssemblyArchiveStat("Пров.", entry.checked.toString(), AccentColor, Modifier.weight(1f))
+                        PreAssemblyArchiveStat("Пров.", entry.checked.toString(), FbsNeonGreen, Modifier.weight(1f))
                         PreAssemblyArchiveStat("Есть", entry.available.toString(), SuccessColor, Modifier.weight(1f))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                         PreAssemblyArchiveStat("Перем.", entry.toTransfer.toString(), DangerColor, Modifier.weight(1f))
-                        PreAssemblyArchiveStat("Не пров.", entry.notChecked.toString(), MutedTextColor, Modifier.weight(1f))
+                        PreAssemblyArchiveStat("Не пров.", entry.notChecked.toString(), FbsDarkMutedText, Modifier.weight(1f))
                     }
                 }
             } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    PreAssemblyArchiveStat("Пров.", entry.checked.toString(), AccentColor, Modifier.weight(1f))
+                    PreAssemblyArchiveStat("Пров.", entry.checked.toString(), FbsNeonGreen, Modifier.weight(1f))
                     PreAssemblyArchiveStat("Есть", entry.available.toString(), SuccessColor, Modifier.weight(1f))
                     PreAssemblyArchiveStat("Перем.", entry.toTransfer.toString(), DangerColor, Modifier.weight(1f))
-                    PreAssemblyArchiveStat("Не пров.", entry.notChecked.toString(), MutedTextColor, Modifier.weight(1f))
+                    PreAssemblyArchiveStat("Не пров.", entry.notChecked.toString(), FbsDarkMutedText, Modifier.weight(1f))
                 }
             }
         }
@@ -5612,13 +9143,13 @@ private fun PreAssemblyArchiveStat(title: String, value: String, valueColor: Col
         modifier
             .height(42.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFFF7F9FF))
+            .background(FbsDarkPanel)
             .padding(horizontal = 6.dp, vertical = 5.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(value, color = valueColor, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, lineHeight = 15.sp, maxLines = 1)
-        Text(title, color = MutedTextColor, fontSize = 9.sp, lineHeight = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(title, color = FbsDarkMutedText, fontSize = 9.sp, lineHeight = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -5634,19 +9165,19 @@ private fun PreAssemblyArchiveDetailsDialog(
     val displayEntry = PreAssemblyArchiveEntryWithItems(entry, draftItems)
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        PreAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AppIconBubble(Icons.Outlined.Description, tint = AccentColor, background = SoftBlueColor, modifier = Modifier.size(42.dp))
+                    AppIconBubble(Icons.Outlined.Description, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f), modifier = Modifier.size(42.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(displayEntry.title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(displayEntry.completedAtText, color = MutedTextColor, fontSize = 13.sp)
+                        Text(displayEntry.title, color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(displayEntry.completedAtText, color = FbsDarkMutedText, fontSize = 13.sp)
                     }
-                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                    PreAssemblyDarkIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
 
                 PreAssemblyArchiveSummaryCard(displayEntry)
@@ -5694,8 +9225,8 @@ private fun PreAssemblyArchiveSummaryCard(entry: PreAssemblyArchiveEntry) {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFFF7F9FF))
-            .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+            .background(FbsDarkPanelAlt.copy(alpha = 0.72f))
+            .border(1.dp, FbsDarkBorder, RoundedCornerShape(18.dp))
             .padding(horizontal = 11.dp, vertical = 9.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
@@ -5711,10 +9242,10 @@ private fun PreAssemblyArchiveSummaryCard(entry: PreAssemblyArchiveEntry) {
 @Composable
 private fun PreAssemblyArchiveSummaryLine(title: String, value: String, emphasized: Boolean = false) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-        Text(title, color = MutedTextColor, fontSize = 12.sp, modifier = Modifier.weight(0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(title, color = FbsDarkMutedText, fontSize = 12.sp, modifier = Modifier.weight(0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Text(
             value,
-            color = MainTextColor,
+            color = FbsDarkText,
             fontWeight = if (emphasized) FontWeight.Bold else FontWeight.SemiBold,
             fontSize = if (emphasized) 12.sp else 13.sp,
             textAlign = TextAlign.End,
@@ -5736,15 +9267,15 @@ private fun PreAssemblyArchiveItemRow(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(Color.White)
+            .background(FbsDarkPanelAlt)
             .border(1.dp, PreAssemblyStatusColor(item.status).copy(alpha = 0.35f), RoundedCornerShape(18.dp))
             .padding(9.dp),
         verticalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(item.name, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("Арт. ${item.offerId} · ${item.requiredQuantity} шт.", color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.name, color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("Арт. ${item.offerId} · ${item.requiredQuantity} шт.", color = FbsDarkMutedText, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             PreAssemblyArchiveStatusBadge(item.status)
         }
@@ -5760,7 +9291,7 @@ private fun PreAssemblyArchiveItemRow(
                 exit = fadeOut(animationSpec = tween(130)) + shrinkVertically(animationSpec = tween(170))
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("К перемещению", color = MutedTextColor, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                    Text("К перемещению", color = FbsDarkMutedText, fontSize = 12.sp, modifier = Modifier.weight(1f))
                     PreAssemblyArchiveQuantityField(
                         value = item.transferQuantity,
                         onValueChange = { onItemChange(item.copy(transferQuantity = it)) },
@@ -5778,7 +9309,7 @@ private fun PreAssemblyArchiveItemRow(
                 PreAssemblyInfoLine("К перемещению", "${item.transferQuantity.ifBlank { "0" }} шт.")
             }
             if (item.comment.isNotBlank()) {
-                Text(item.comment, color = MutedTextColor, fontSize = 12.sp, lineHeight = 16.sp)
+                Text(item.comment, color = FbsDarkMutedText, fontSize = 12.sp, lineHeight = 16.sp)
             }
         }
     }
@@ -5793,7 +9324,7 @@ private fun PreAssemblyArchiveStatusSelector(selected: PreAssemblyStatus, onSele
                 .fillMaxWidth()
                 .height(42.dp)
                 .clip(RoundedCornerShape(13.dp))
-                .background(Color(0xFFFAFBFF))
+                .background(FbsDarkPanel)
                 .border(1.dp, PreAssemblyStatusColor(selected).copy(alpha = 0.5f), RoundedCornerShape(13.dp))
                 .clickable { expanded = true }
                 .padding(horizontal = 10.dp),
@@ -5802,16 +9333,16 @@ private fun PreAssemblyArchiveStatusSelector(selected: PreAssemblyStatus, onSele
         ) {
             PreAssemblyStatusDot(selected, size = 8.dp)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                Text("Статус", color = MutedTextColor, fontSize = 10.sp, lineHeight = 11.sp, maxLines = 1)
-                Text(selected.title, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 13.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Статус", color = FbsDarkMutedText, fontSize = 10.sp, lineHeight = 11.sp, maxLines = 1)
+                Text(selected.title, color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 13.sp, lineHeight = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = PreAssemblyStatusColor(selected), modifier = Modifier.size(18.dp).rotate(if (expanded) 180f else 0f))
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(Color.White)) {
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.background(FbsDarkPanelAlt)) {
             PreAssemblyStatus.values().forEach { status ->
                 DropdownMenuItem(
                     text = {
-                        Text(status.title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(status.title, color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                     },
                     leadingIcon = { PreAssemblyStatusDot(status, size = 8.dp) },
                     onClick = {
@@ -5836,13 +9367,13 @@ private fun PreAssemblyArchiveQuantityField(
         modifier = modifier
             .height(34.dp)
             .clip(RoundedCornerShape(11.dp))
-            .background(Color.White)
-            .border(1.2.dp, AccentColor, RoundedCornerShape(11.dp))
+            .background(FbsDarkPanel)
+            .border(1.2.dp, FbsNeonGreen, RoundedCornerShape(11.dp))
             .padding(horizontal = 8.dp),
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         textStyle = androidx.compose.ui.text.TextStyle(
-            color = MainTextColor,
+            color = FbsDarkText,
             fontWeight = FontWeight.ExtraBold,
             fontSize = 13.sp,
             textAlign = TextAlign.End
@@ -5851,12 +9382,12 @@ private fun PreAssemblyArchiveQuantityField(
             Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
                     if (value.isBlank()) {
-                        Text("0", color = SoftTextColor, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text("0", color = FbsDarkMutedText, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                     innerTextField()
                 }
                 Spacer(Modifier.width(4.dp))
-                Text("шт.", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, maxLines = 1)
+                Text("шт.", color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, maxLines = 1)
             }
         }
     )
@@ -5874,18 +9405,18 @@ private fun PreAssemblyArchiveCommentField(
         modifier = modifier
             .height(58.dp)
             .clip(RoundedCornerShape(13.dp))
-            .background(Color(0xFFF7F9FF))
-            .border(1.dp, CardBorderColor, RoundedCornerShape(13.dp))
+            .background(FbsDarkPanel)
+            .border(1.dp, FbsDarkBorder, RoundedCornerShape(13.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),
         textStyle = androidx.compose.ui.text.TextStyle(
-            color = MainTextColor,
+            color = FbsDarkText,
             fontSize = 13.sp,
             lineHeight = 16.sp
         ),
         decorationBox = { innerTextField ->
             Box(Modifier.fillMaxSize()) {
                 if (value.isBlank()) {
-                    Text("Комментарий", color = MutedTextColor, fontSize = 12.sp, lineHeight = 15.sp)
+                    Text("Комментарий", color = FbsDarkMutedText, fontSize = 12.sp, lineHeight = 15.sp)
                 }
                 innerTextField()
             }
@@ -5959,7 +9490,7 @@ private fun PreAssemblyArchiveActionButton(
             modifier = modifier.height(36.dp),
             shape = shape,
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = FbsNeonGreen, contentColor = Color.Black)
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(4.dp))
@@ -5970,9 +9501,9 @@ private fun PreAssemblyArchiveActionButton(
             onClick = onClick,
             modifier = modifier.height(36.dp),
             shape = shape,
-            border = BorderStroke(1.dp, CardBorderColor),
+            border = BorderStroke(1.dp, FbsDarkBorder),
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = MainTextColor)
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = FbsDarkPanelAlt, contentColor = FbsDarkText)
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(4.dp))
@@ -6047,7 +9578,7 @@ $summary
             else -> ""
         }
         """${index + 1}. Артикул: ${item.offerId}
-Товар: ${item.name}
+Товар: ${PreAssemblyProductNames.nameFor(item)}
 Причина перемещения: $reason
 Количество к перемещению: ${item.transferQuantity.ifBlank { "0" }} шт.${if (item.comment.isBlank()) "" else "\nКомментарий: ${item.comment}"}
 """.trimIndent()
@@ -6083,7 +9614,7 @@ private fun PreAssemblyBulkActionsDialog(
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        PreAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
@@ -6091,16 +9622,16 @@ private fun PreAssemblyBulkActionsDialog(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Дополнительно", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                        Text("Архив и действия с видимыми позициями.", color = MutedTextColor, fontSize = 13.sp)
+                        Text("Дополнительно", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Архив и действия с видимыми позициями.", color = FbsDarkMutedText, fontSize = 13.sp)
                     }
-                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                    PreAssemblyDarkIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
                 if (archive.isNotEmpty()) {
                     PreAssemblyArchiveActionRow(archive = archive, onClick = onOpenArchive)
-                    HorizontalDivider(color = CardBorderColor.copy(alpha = 0.72f))
+                    HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.82f))
                 }
-                ModernTextField(
+                FbsAssemblyTextField(
                     value = printBridgeHost,
                     onValueChange = onPrintBridgeHostChange,
                     modifier = Modifier.fillMaxWidth(),
@@ -6109,7 +9640,7 @@ private fun PreAssemblyBulkActionsDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                     leadingIcon = Icons.Outlined.Settings
                 )
-                ModernTextField(
+                FbsAssemblyTextField(
                     value = printPrinterName,
                     onValueChange = onPrintPrinterNameChange,
                     modifier = Modifier.fillMaxWidth(),
@@ -6130,7 +9661,7 @@ private fun PreAssemblyBulkActionsDialog(
                     icon = Icons.Outlined.Description,
                     onClick = onSharePrintLogs
                 )
-                HorizontalDivider(color = CardBorderColor.copy(alpha = 0.72f))
+                HorizontalDivider(color = FbsDarkBorder.copy(alpha = 0.82f))
                 if (isCompleted) {
                     PreAssemblyMessageCard("Сборка завершена. Верните её в работу, чтобы менять позиции.")
                 } else if (totalCount == 0) {
@@ -6161,19 +9692,19 @@ private fun PreAssemblyUtilityActionRow(
             .fillMaxWidth()
             .alpha(if (enabled) 1f else 0.48f)
             .clip(RoundedCornerShape(16.dp))
-            .background(Color.White)
-            .border(1.dp, CardBorderColor, RoundedCornerShape(16.dp))
+            .background(FbsDarkPanelAlt)
+            .border(1.dp, FbsDarkBorder, RoundedCornerShape(16.dp))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = AccentColor, modifier = Modifier.size(21.dp))
+        Icon(icon, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(21.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = FbsDarkMutedText, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MutedTextColor, modifier = Modifier.rotate(-90f))
+        Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = FbsDarkMutedText, modifier = Modifier.rotate(-90f))
     }
 }
 
@@ -6184,25 +9715,25 @@ private fun PreAssemblyArchiveActionRow(archive: List<PreAssemblyArchiveEntry>, 
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(Color.White)
-            .border(1.dp, CardBorderColor, RoundedCornerShape(16.dp))
+            .background(FbsDarkPanelAlt)
+            .border(1.dp, FbsDarkBorder, RoundedCornerShape(16.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(Icons.Outlined.Archive, contentDescription = null, tint = AccentColor, modifier = Modifier.size(21.dp))
+        Icon(Icons.Outlined.Archive, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(21.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text("Архив предварительных сборок", color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Архив предварительных сборок", color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(
                 latest?.let { "Последняя: ${it.completedAtText}, позиций: ${it.total}" } ?: "Открыть архив",
-                color = MutedTextColor,
+                color = FbsDarkMutedText,
                 fontSize = 12.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
-        StatusBadge(archive.size.toString(), tone = BadgeTone.Blue)
+        PreAssemblyMetaChip(archive.size.toString(), background = FbsNeonGreen.copy(alpha = 0.14f), contentColor = FbsNeonGreen)
     }
 }
 
@@ -6218,16 +9749,16 @@ private fun PreAssemblyBulkActionRow(action: PreAssemblyBulkAction, enabled: Boo
             .fillMaxWidth()
             .alpha(if (enabled) 1f else 0.48f)
             .clip(RoundedCornerShape(16.dp))
-            .background(Color.White)
-            .border(1.dp, CardBorderColor, RoundedCornerShape(16.dp))
+            .background(FbsDarkPanelAlt)
+            .border(1.dp, FbsDarkBorder, RoundedCornerShape(16.dp))
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Icon(icon, contentDescription = null, tint = AccentColor, modifier = Modifier.size(21.dp))
-        Text(action.title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-        Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = MutedTextColor, modifier = Modifier.rotate(-90f))
+        Icon(icon, contentDescription = null, tint = FbsNeonGreen, modifier = Modifier.size(21.dp))
+        Text(action.title, color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+        Icon(Icons.Outlined.ExpandMore, contentDescription = null, tint = FbsDarkMutedText, modifier = Modifier.rotate(-90f))
     }
 }
 
@@ -6240,27 +9771,27 @@ private fun PreAssemblyBulkConfirmDialog(
     onConfirm: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        PreAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(action.confirmTitle, color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                Text(action.confirmTitle, color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
                 Text(
                     when (action) {
                         PreAssemblyBulkAction.MARK_AVAILABLE -> "Отметить $visibleCount позиций как “Есть”? Будут изменены только товары, которые сейчас отображаются после поиска и фильтра."
                         PreAssemblyBulkAction.RESET_CHECK -> "Сбросить проверку у $visibleCount позиций? Комментарии сохранятся, а статус станет “Не проверено”."
                         PreAssemblyBulkAction.CLEAR_COMMENTS -> "Очистить комментарии у $visibleCount позиций? Статусы и количество к перемещению не изменятся."
                     },
-                    color = MutedTextColor,
+                    color = FbsDarkMutedText,
                     fontSize = 14.sp,
                     lineHeight = 19.sp
                 )
-                Text("Видимых позиций: $visibleCount из $totalCount", color = AccentColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Text("Видимых позиций: $visibleCount из $totalCount", color = FbsNeonGreen, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppSecondaryButton("Отмена", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
-                    AppPrimaryButton(action.successButton, icon = Icons.Outlined.CheckCircle, onClick = onConfirm, modifier = Modifier.weight(1f))
+                    PreAssemblyDarkSecondaryButton("Отмена", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
+                    PreAssemblyDarkPrimaryButton(action.successButton, icon = Icons.Outlined.CheckCircle, onClick = onConfirm, modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -6282,27 +9813,32 @@ private fun PreAssemblyFinishDialog(
     onReturnToWork: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        PreAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AppIconBubble(Icons.Outlined.CheckCircle, tint = if (isCompleted) SuccessColor else AccentColor, background = if (isCompleted) Color(0xFFE9F8EF) else SoftBlueColor, modifier = Modifier.size(42.dp))
+                    AppIconBubble(
+                        Icons.Outlined.CheckCircle,
+                        tint = if (isCompleted) SuccessColor else FbsNeonGreen,
+                        background = if (isCompleted) SuccessColor.copy(alpha = 0.14f) else FbsNeonGreen.copy(alpha = 0.12f),
+                        modifier = Modifier.size(42.dp)
+                    )
                     Column(Modifier.weight(1f)) {
-                        Text(if (isCompleted) "Предварительная сборка завершена" else "Завершить предварительную сборку?", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                        Text(if (isCompleted) "Завершено: ${completedAt ?: "—"}" else "Проверьте итог перед фиксацией результата.", color = MutedTextColor, fontSize = 13.sp)
+                        Text(if (isCompleted) "Предварительная сборка завершена" else "Завершить предварительную сборку?", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text(if (isCompleted) "Завершено: ${completedAt ?: "—"}" else "Проверьте итог перед фиксацией результата.", color = FbsDarkMutedText, fontSize = 13.sp)
                     }
-                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                    PreAssemblyDarkIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
 
                 Column(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xFFF7F9FF))
-                        .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+                        .background(FbsDarkPanelAlt.copy(alpha = 0.72f))
+                        .border(1.dp, FbsDarkBorder, RoundedCornerShape(18.dp))
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -6322,13 +9858,13 @@ private fun PreAssemblyFinishDialog(
 
                 if (isCompleted) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppSecondaryButton("Закрыть", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
-                        AppPrimaryButton("Вернуть в работу", icon = Icons.Outlined.Archive, onClick = onReturnToWork, modifier = Modifier.weight(1f))
+                        PreAssemblyDarkSecondaryButton("Закрыть", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
+                        PreAssemblyDarkPrimaryButton("Вернуть в работу", icon = Icons.Outlined.Archive, onClick = onReturnToWork, modifier = Modifier.weight(1f))
                     }
                 } else {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppSecondaryButton("Вернуться", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
-                        AppPrimaryButton(if (notChecked > 0) "Завершить всё равно" else "Завершить", icon = Icons.Outlined.CheckCircle, onClick = onFinish, modifier = Modifier.weight(1f))
+                        PreAssemblyDarkSecondaryButton("Вернуться", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
+                        PreAssemblyDarkPrimaryButton(if (notChecked > 0) "Завершить всё равно" else "Завершить", icon = Icons.Outlined.CheckCircle, onClick = onFinish, modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -6349,7 +9885,7 @@ private fun PreAssemblyControlsDialog(
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        PreAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
@@ -6357,10 +9893,10 @@ private fun PreAssemblyControlsDialog(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Поиск, фильтр и сортировка", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                        Text("Сортировка “Что проверять дальше” поднимает наверх непроверенные и проблемные товары.", color = MutedTextColor, fontSize = 13.sp)
+                        Text("Поиск, фильтр и сортировка", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Сортировка “Что проверять дальше” поднимает наверх непроверенные и проблемные товары.", color = FbsDarkMutedText, fontSize = 13.sp)
                     }
-                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                    PreAssemblyDarkIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
                 PreAssemblyControlPanel(
                     searchQuery = searchQuery,
@@ -6385,7 +9921,7 @@ private fun PreAssemblyStatusPickerDialog(
     onDismiss: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        PreAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
@@ -6393,18 +9929,18 @@ private fun PreAssemblyStatusPickerDialog(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f)) {
-                        Text("Статус позиции", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text("Выберите результат проверки для товара.", color = MutedTextColor, fontSize = 13.sp)
+                        Text("Статус позиции", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("Выберите результат проверки для товара.", color = FbsDarkMutedText, fontSize = 13.sp)
                     }
-                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                    PreAssemblyDarkIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
                 PreAssemblyStatus.values().forEach { status ->
                     Row(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(if (status == selected) PreAssemblyStatusBackground(status) else Color.White)
-                            .border(1.dp, if (status == selected) PreAssemblyStatusColor(status).copy(alpha = 0.42f) else CardBorderColor, RoundedCornerShape(16.dp))
+                            .background(if (status == selected) PreAssemblyStatusBackground(status) else FbsDarkPanelAlt)
+                            .border(1.dp, if (status == selected) PreAssemblyStatusColor(status).copy(alpha = 0.42f) else FbsDarkBorder, RoundedCornerShape(16.dp))
                             .clickable {
                                 onSelected(status)
                             }
@@ -6414,8 +9950,8 @@ private fun PreAssemblyStatusPickerDialog(
                     ) {
                         PreAssemblyStatusDot(status)
                         Column(Modifier.weight(1f)) {
-                            Text(status.title, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                            Text(PreAssemblyStatusHint(status), color = MutedTextColor, fontSize = 12.sp)
+                            Text(status.title, color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text(PreAssemblyStatusHint(status), color = FbsDarkMutedText, fontSize = 12.sp)
                         }
                         if (status == selected) {
                             Icon(Icons.Outlined.CheckCircle, contentDescription = null, tint = PreAssemblyStatusColor(status))
@@ -6435,7 +9971,7 @@ private fun PreAssemblyItemEditorDialog(
 ) {
     val needsTransfer = item.status == PreAssemblyStatus.NOT_AVAILABLE || item.status == PreAssemblyStatus.NEED_TRANSFER
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        PreAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
@@ -6443,10 +9979,10 @@ private fun PreAssemblyItemEditorDialog(
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("Карточка заказа", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                        Text(item.name, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text("Карточка заказа", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text(item.name, color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     }
-                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                    PreAssemblyDarkIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -6459,8 +9995,8 @@ private fun PreAssemblyItemEditorDialog(
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xFFF7F9FF))
-                        .border(1.dp, CardBorderColor.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
+                        .background(FbsDarkPanelAlt.copy(alpha = 0.72f))
+                        .border(1.dp, FbsDarkBorder, RoundedCornerShape(18.dp))
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -6476,7 +10012,7 @@ private fun PreAssemblyItemEditorDialog(
                     enter = fadeIn(animationSpec = tween(180)) + expandVertically(animationSpec = tween(210)),
                     exit = fadeOut(animationSpec = tween(130)) + shrinkVertically(animationSpec = tween(170))
                 ) {
-                    ModernTextField(
+                    FbsAssemblyTextField(
                         item.transferQuantity,
                         { vm.updateTransferQuantity(item.id, it) },
                         label = "Сколько переместить",
@@ -6485,7 +10021,7 @@ private fun PreAssemblyItemEditorDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                ModernTextField(
+                FbsAssemblyTextField(
                     item.comment,
                     { vm.updateComment(item.id, it) },
                     label = "Комментарий",
@@ -6495,8 +10031,8 @@ private fun PreAssemblyItemEditorDialog(
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    AppSecondaryButton("Закрыть", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
-                    AppPrimaryButton("Готово", icon = Icons.Outlined.CheckCircle, onClick = onDismiss, modifier = Modifier.weight(1f))
+                    PreAssemblyDarkSecondaryButton("Закрыть", icon = Icons.Outlined.Close, onClick = onDismiss, modifier = Modifier.weight(1f))
+                    PreAssemblyDarkPrimaryButton("Готово", icon = Icons.Outlined.CheckCircle, onClick = onDismiss, modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -6508,26 +10044,26 @@ private fun PreAssemblyQuantityChip(quantity: Int, modifier: Modifier = Modifier
     Row(
         modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(Color(0xFFF4F6FB))
-            .padding(horizontal = 9.dp, vertical = 3.dp),
+            .background(FbsNeonGreen.copy(alpha = 0.14f))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Text(
             quantity.toString(),
-            color = MainTextColor,
+            color = FbsNeonGreen,
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 17.sp,
-            lineHeight = 18.sp,
+            fontSize = 14.sp,
+            lineHeight = 15.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
         Text(
             "шт.",
-            color = MainTextColor,
+            color = FbsNeonGreen,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 11.sp,
-            lineHeight = 12.sp,
+            fontSize = 9.sp,
+            lineHeight = 10.sp,
             maxLines = 1
         )
     }
@@ -6536,21 +10072,21 @@ private fun PreAssemblyQuantityChip(quantity: Int, modifier: Modifier = Modifier
 @Composable
 private fun PreAssemblyMetaChip(
     text: String,
-    background: Color = SoftBlueColor,
-    contentColor: Color = AccentColor,
+    background: Color = FbsNeonGreen.copy(alpha = 0.12f),
+    contentColor: Color = FbsNeonGreen,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier
             .clip(RoundedCornerShape(999.dp))
             .background(background)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(horizontal = 7.dp, vertical = 3.dp)
     ) {
         Text(
             text,
             color = contentColor,
             fontWeight = FontWeight.SemiBold,
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -6571,13 +10107,13 @@ private fun PreAssemblyCompactQuantityField(
         modifier = modifier
             .height(40.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.White)
-            .border(1.4.dp, AccentColor, RoundedCornerShape(12.dp))
+            .background(FbsDarkPanel)
+            .border(1.4.dp, FbsNeonGreen, RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp),
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         textStyle = androidx.compose.ui.text.TextStyle(
-            color = MainTextColor,
+            color = FbsDarkText,
             fontWeight = FontWeight.ExtraBold,
             fontSize = 15.sp,
             textAlign = TextAlign.End
@@ -6594,7 +10130,7 @@ private fun PreAssemblyCompactQuantityField(
                     if (value.isBlank()) {
                         Text(
                             "0",
-                            color = SoftTextColor,
+                            color = FbsDarkMutedText,
                             fontWeight = FontWeight.Bold,
                             fontSize = 13.sp,
                             textAlign = TextAlign.End
@@ -6605,7 +10141,7 @@ private fun PreAssemblyCompactQuantityField(
                 Spacer(Modifier.width(5.dp))
                 Text(
                     "шт.",
-                    color = MainTextColor,
+                    color = FbsDarkText,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 11.sp,
                     maxLines = 1
@@ -6618,8 +10154,8 @@ private fun PreAssemblyCompactQuantityField(
 @Composable
 private fun PreAssemblyCompactInfoLine(title: String, value: String) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = MutedTextColor, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(value, color = MainTextColor, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(title, color = FbsDarkMutedText, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, color = FbsDarkText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, textAlign = TextAlign.End, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -6638,7 +10174,7 @@ private fun PreAssemblyCompactCardButton(
             modifier = modifier.height(40.dp),
             shape = shape,
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = AccentColor, contentColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = FbsNeonGreen, contentColor = Color.Black)
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
@@ -6649,9 +10185,9 @@ private fun PreAssemblyCompactCardButton(
             onClick = onClick,
             modifier = modifier.height(40.dp),
             shape = shape,
-            border = BorderStroke(1.dp, CardBorderColor),
+            border = BorderStroke(1.dp, FbsDarkBorder),
             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White, contentColor = MainTextColor)
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = FbsDarkPanelAlt, contentColor = FbsDarkText)
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(6.dp))
@@ -6668,39 +10204,130 @@ private fun PreAssemblyActionPanel(
     hasActiveFilters: Boolean,
     hasArchive: Boolean,
     isCompleted: Boolean,
+    compact: Boolean = false,
     onOpenControls: () -> Unit,
     onOpenBulkActions: () -> Unit,
+    onOpenArchive: () -> Unit,
     onBuildReport: () -> Unit,
     onFinishAssembly: () -> Unit,
-    onShareReport: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    val shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
+    Row(
+        modifier
+            .clip(shape)
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        FbsDarkPanelAlt.copy(alpha = 0.99f),
+                        FbsDarkBackground.copy(alpha = 0.98f)
+                    )
+                )
+            )
+            .border(1.dp, FbsDarkBorder.copy(alpha = 0.95f), shape)
+            .padding(horizontal = if (compact) 5.dp else 10.dp, vertical = if (compact) 6.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp)
     ) {
-        PreAssemblyMinimalActionButton(
-            icon = Icons.Outlined.Search,
-            primary = hasActiveFilters,
-            onClick = onOpenControls
-        )
-        PreAssemblyMinimalActionButton(
-            icon = Icons.Outlined.MoreVert,
-            enabled = hasArchive || (hasItems && hasVisibleItems && !isCompleted),
-            onClick = onOpenBulkActions
-        )
-        PreAssemblyMinimalActionButton(
+        PreAssemblyBottomNavItem(
+            text = "Обзор",
             icon = Icons.Outlined.Description,
-            primary = true,
             enabled = hasItems,
-            onClick = onBuildReport
+            compact = compact,
+            onClick = onOpenControls,
+            modifier = Modifier.weight(1f)
         )
-        PreAssemblyMinimalActionButton(
+        PreAssemblyBottomNavItem(
+            text = "Проверка",
             icon = Icons.Outlined.CheckCircle,
-            primary = isCompleted,
-            enabled = hasItems || hasReport,
-            onClick = onFinishAssembly
+            active = true,
+            compact = compact,
+            onClick = onOpenControls,
+            modifier = Modifier.weight(1f)
+        )
+        PreAssemblyBottomNavItem(
+            text = "Перем.",
+            icon = Icons.Outlined.Inventory2,
+            enabled = hasItems,
+            active = hasReport,
+            compact = compact,
+            onClick = onBuildReport,
+            modifier = Modifier.weight(1f)
+        )
+        PreAssemblyBottomNavItem(
+            text = "История",
+            icon = Icons.Outlined.History,
+            enabled = hasArchive,
+            compact = compact,
+            onClick = onOpenArchive,
+            modifier = Modifier.weight(1f)
+        )
+        PreAssemblyBottomNavItem(
+            text = "Настр.",
+            icon = Icons.Outlined.Settings,
+            enabled = hasArchive || (hasItems && hasVisibleItems && !isCompleted),
+            active = hasActiveFilters || isCompleted,
+            compact = compact,
+            onClick = onOpenBulkActions,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun PreAssemblyBottomNavItem(
+    text: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    active: Boolean = false,
+    enabled: Boolean = true,
+    compact: Boolean = false,
+    onClick: () -> Unit
+) {
+    val contentColor = when {
+        active -> FbsNeonGreen
+        enabled -> FbsDarkMutedText
+        else -> FbsDarkMutedText.copy(alpha = 0.48f)
+    }
+    val shape = RoundedCornerShape(if (compact) 16.dp else 24.dp)
+    Column(
+        modifier
+            .height(if (compact) 60.dp else 88.dp)
+            .alpha(if (enabled) 1f else 0.48f)
+            .clip(shape)
+            .background(if (active) FbsDarkPanelAlt.copy(alpha = 0.92f) else Color.Transparent)
+            .border(
+                1.dp,
+                if (active) FbsDarkBorder.copy(alpha = 0.95f) else Color.Transparent,
+                shape
+            )
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 2.dp, vertical = if (compact) 4.dp else 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(contentAlignment = Alignment.TopEnd) {
+            Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(if (compact) 21.dp else 29.dp))
+            if (active) {
+                Box(
+                    Modifier
+                        .offset(x = 5.dp, y = (-4).dp)
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(FbsNeonGreen)
+                )
+            }
+        }
+        Spacer(Modifier.height(if (compact) 3.dp else 5.dp))
+        Text(
+            text,
+            color = contentColor,
+            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+            fontSize = if (compact) 9.sp else 12.sp,
+            lineHeight = if (compact) 11.sp else 14.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center
         )
     }
 }
@@ -6726,10 +10353,10 @@ private fun PreAssemblyMinimalActionButton(
             shape = shape,
             contentPadding = PaddingValues(0.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = AccentColor,
-                contentColor = Color.White,
-                disabledContainerColor = Color(0xFFE8ECF3),
-                disabledContentColor = SoftTextColor
+                containerColor = FbsNeonGreen,
+                contentColor = Color.Black,
+                disabledContainerColor = FbsDarkBorder,
+                disabledContentColor = FbsDarkMutedText
             )
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
@@ -6740,13 +10367,13 @@ private fun PreAssemblyMinimalActionButton(
             enabled = enabled,
             modifier = buttonModifier,
             shape = shape,
-            border = BorderStroke(1.dp, Color(0xFFE1E7F0)),
+            border = BorderStroke(1.dp, FbsDarkBorder),
             contentPadding = PaddingValues(0.dp),
             colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = Color.White,
-                contentColor = MainTextColor,
-                disabledContainerColor = Color(0xFFF5F7FB),
-                disabledContentColor = SoftTextColor
+                containerColor = FbsDarkPanelAlt,
+                contentColor = FbsNeonGreen,
+                disabledContainerColor = FbsDarkPanel,
+                disabledContentColor = FbsDarkMutedText
             )
         ) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
@@ -6760,11 +10387,11 @@ private fun PreAssemblyMessageCard(message: String) {
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(Color(0xFFFFF3E8))
-            .border(1.dp, Color(0xFFFFD7B5), RoundedCornerShape(18.dp))
+            .background(WarningColor.copy(alpha = 0.16f))
+            .border(1.dp, WarningColor.copy(alpha = 0.42f), RoundedCornerShape(18.dp))
             .padding(horizontal = 14.dp, vertical = 11.dp)
     ) {
-        Text(message, color = Color(0xFFB45309), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Text(message, color = WarningColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
     }
 }
 
@@ -6777,51 +10404,51 @@ private fun PreAssemblyReportDialog(
     onShare: () -> Unit
 ) {
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        ModernCard(
+        PreAssemblyDarkCard(
             Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    AppIconBubble(Icons.Outlined.Description, modifier = Modifier.size(42.dp))
+                    AppIconBubble(Icons.Outlined.Description, tint = FbsNeonGreen, background = FbsNeonGreen.copy(alpha = 0.12f), modifier = Modifier.size(42.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Список на перемещение", color = MainTextColor, fontWeight = FontWeight.Bold, fontSize = 19.sp)
-                        Text("Проверьте текст перед отправкой бухгалтеру", color = MutedTextColor, fontSize = 13.sp)
+                        Text("Список на перемещение", color = FbsDarkText, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                        Text("Проверьте текст перед отправкой бухгалтеру", color = FbsDarkMutedText, fontSize = 13.sp)
                     }
-                    AppIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
+                    PreAssemblyDarkIconActionButton(Icons.Outlined.Close, "Закрыть", onClick = onDismiss)
                 }
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(max = 420.dp)
                         .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xFFF7F9FF))
-                        .border(1.dp, CardBorderColor.copy(alpha = 0.75f), RoundedCornerShape(18.dp))
+                        .background(FbsDarkPanelAlt.copy(alpha = 0.72f))
+                        .border(1.dp, FbsDarkBorder, RoundedCornerShape(18.dp))
                         .padding(12.dp)
                 ) {
                     item {
-                        Text(reportText, color = MainTextColor, fontSize = 14.sp, lineHeight = 20.sp)
+                        Text(reportText, color = FbsDarkText, fontSize = 14.sp, lineHeight = 20.sp)
                     }
                 }
                 Text(
                     "Итого позиций: ${reportText.lines().count { it.trim().matches(Regex("\\d+\\..*")) }}",
-                    color = MutedTextColor,
+                    color = FbsDarkMutedText,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 13.sp
                 )
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     if (maxWidth < 430.dp) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppSecondaryButton("Скопировать", icon = Icons.Outlined.Description, onClick = onCopy, modifier = Modifier.fillMaxWidth())
-                            AppSecondaryButton("Напечатать", icon = Icons.Outlined.Print, onClick = onPrint, modifier = Modifier.fillMaxWidth())
-                            AppPrimaryButton("Печать + отправка", icon = Icons.AutoMirrored.Outlined.Send, onClick = onShare, modifier = Modifier.fillMaxWidth())
+                            PreAssemblyDarkSecondaryButton("Скопировать", icon = Icons.Outlined.Description, onClick = onCopy, modifier = Modifier.fillMaxWidth())
+                            PreAssemblyDarkSecondaryButton("Напечатать", icon = Icons.Outlined.Print, onClick = onPrint, modifier = Modifier.fillMaxWidth())
+                            PreAssemblyDarkPrimaryButton("Печать + отправка", icon = Icons.AutoMirrored.Outlined.Send, onClick = onShare, modifier = Modifier.fillMaxWidth())
                         }
                     } else {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppSecondaryButton("Скопировать", icon = Icons.Outlined.Description, onClick = onCopy, modifier = Modifier.weight(0.95f))
-                            AppSecondaryButton("Напечатать", icon = Icons.Outlined.Print, onClick = onPrint, modifier = Modifier.weight(0.95f))
-                            AppPrimaryButton("Печать + отправка", icon = Icons.AutoMirrored.Outlined.Send, onClick = onShare, modifier = Modifier.weight(1.2f))
+                            PreAssemblyDarkSecondaryButton("Скопировать", icon = Icons.Outlined.Description, onClick = onCopy, modifier = Modifier.weight(0.95f))
+                            PreAssemblyDarkSecondaryButton("Напечатать", icon = Icons.Outlined.Print, onClick = onPrint, modifier = Modifier.weight(0.95f))
+                            PreAssemblyDarkPrimaryButton("Печать + отправка", icon = Icons.AutoMirrored.Outlined.Send, onClick = onShare, modifier = Modifier.weight(1.2f))
                         }
                     }
                 }
@@ -6876,17 +10503,17 @@ private fun PreAssemblyAttentionPriority(status: PreAssemblyStatus): Int = when 
 }
 
 private fun PreAssemblyStatusColor(status: PreAssemblyStatus): Color = when (status) {
-    PreAssemblyStatus.NOT_CHECKED -> MutedTextColor
+    PreAssemblyStatus.NOT_CHECKED -> FbsDarkMutedText
     PreAssemblyStatus.AVAILABLE -> SuccessColor
     PreAssemblyStatus.NOT_AVAILABLE -> DangerColor
     PreAssemblyStatus.NEED_TRANSFER -> WarningColor
 }
 
 private fun PreAssemblyStatusBackground(status: PreAssemblyStatus): Color = when (status) {
-    PreAssemblyStatus.NOT_CHECKED -> Color(0xFFF2F4F7)
-    PreAssemblyStatus.AVAILABLE -> Color(0xFFE9F8EF)
-    PreAssemblyStatus.NOT_AVAILABLE -> Color(0xFFFFE8E8)
-    PreAssemblyStatus.NEED_TRANSFER -> Color(0xFFFFF4E5)
+    PreAssemblyStatus.NOT_CHECKED -> FbsDarkBorder.copy(alpha = 0.72f)
+    PreAssemblyStatus.AVAILABLE -> SuccessColor.copy(alpha = 0.14f)
+    PreAssemblyStatus.NOT_AVAILABLE -> DangerColor.copy(alpha = 0.14f)
+    PreAssemblyStatus.NEED_TRANSFER -> WarningColor.copy(alpha = 0.16f)
 }
 
 private fun PreAssemblyStatusHint(status: PreAssemblyStatus): String = when (status) {

@@ -2,4 +2,5 @@
     <external-files-path name="reports_external_files" path="Documents/reports/" />
     <files-path name="reports_files" path="reports/" />
     <cache-path name="reports_cache" path="reports/" />
+    <cache-path name="updates_cache" path="updates/" />
 </paths>

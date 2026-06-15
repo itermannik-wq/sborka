@@ -62,7 +62,10 @@ data class ShipmentCityEntity(
 
 @Entity(
     tableName = "boxes",
-    indices = [Index(value = ["shipmentId", "shipmentCityId", "boxNumber"], unique = true)]
+    indices = [
+        Index(value = ["shipmentId", "shipmentCityId", "boxNumber"], unique = true),
+        Index("shipmentCityId")
+    ]
 )
 data class BoxEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -75,7 +78,14 @@ data class BoxEntity(
     val updatedAt: Long
 )
 
-@Entity(tableName = "box_items", indices = [Index(value = ["boxId", "productId"], unique = true), Index("productId")])
+@Entity(
+    tableName = "box_items",
+    indices = [
+        Index(value = ["boxId", "productId"], unique = true),
+        Index("productId"),
+        Index(value = ["boxId", "addedAt"])
+    ]
+)
 data class BoxItemEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val boxId: Long,
@@ -210,6 +220,12 @@ interface AppDao {
 
     @Query("DELETE FROM pre_assembly_archive_items WHERE archiveId = :archiveId")
     suspend fun deletePreAssemblyArchiveItems(archiveId: Long)
+
+    @Query("DELETE FROM fbs_assembly_history")
+    suspend fun deleteFbsAssemblyHistory()
+
+    @Query("DELETE FROM app_settings WHERE `key` IN (:keys)")
+    suspend fun deleteSettingsByKeys(keys: List<String>)
 
     @Query("SELECT id FROM marketplaces WHERE name = :name LIMIT 1")
     suspend fun marketplaceIdByName(name: String): Long?
@@ -363,6 +379,9 @@ interface AppDao {
         ORDER BY createdAt DESC, id DESC
     """)
     suspend fun listFbsAssemblyHistory(): List<FbsAssemblyHistoryEntity>
+
+    @Query("SELECT DISTINCT orderNumber FROM fbs_assembly_history WHERE status = 'COLLECTED'")
+    suspend fun listCollectedFbsAssemblyOrderNumbers(): List<String>
 }
 
 @Database(
@@ -372,7 +391,7 @@ interface AppDao {
         ReportLogEntity::class, AppSettingEntity::class, PreAssemblyArchiveEntity::class,
         PreAssemblyArchiveItemEntity::class, FbsAssemblyHistoryEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class LocalDatabase : RoomDatabase() {
@@ -383,7 +402,7 @@ abstract class LocalDatabase : RoomDatabase() {
 
         fun get(context: Context): LocalDatabase = INSTANCE ?: synchronized(this) {
             INSTANCE ?: Room.databaseBuilder(context.applicationContext, LocalDatabase::class.java, "postavki.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { INSTANCE = it }
@@ -453,6 +472,13 @@ abstract class LocalDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_fbs_assembly_history_createdAt` ON `fbs_assembly_history` (`createdAt`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_fbs_assembly_history_orderNumber` ON `fbs_assembly_history` (`orderNumber`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_fbs_assembly_history_status` ON `fbs_assembly_history` (`status`)")
+            }
+        }
+
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_boxes_shipmentCityId` ON `boxes` (`shipmentCityId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_box_items_boxId_addedAt` ON `box_items` (`boxId`, `addedAt`)")
             }
         }
     }

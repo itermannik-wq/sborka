@@ -1,15 +1,25 @@
 package com.boldrex.postavki
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.content.Intent
+import android.graphics.Color as AndroidColor
+import android.os.Build
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 private val LightColors = lightColorScheme(
     primary = Color(0xFF2F5DFF),
@@ -53,9 +63,20 @@ class MainActivity : ComponentActivity() {
         const val SHORTCUT_ID_IMPORT_REPORTS = "import_reports"
     }
     private val vm: AppViewModel by viewModels { AppViewModel.factory(application) }
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) scheduleNotificationsIfAllowed()
+    }
+    private var notificationsScheduledThisSession = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        configureFullscreenChrome()
+        FbsOrderNotificationService(applicationContext).ensureChannels()
+        if (!requestNotificationPermission()) {
+            scheduleNotificationsIfAllowed()
+        }
         dispatchShortcut(intent)
         setContent {
             AppTheme {
@@ -64,10 +85,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        scheduleNotificationsIfAllowed()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) configureFullscreenChrome()
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         dispatchShortcut(intent)
+    }
+
+    private fun configureFullscreenChrome() {
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(AndroidColor.TRANSPARENT)
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     private fun dispatchShortcut(intent: Intent?) {
@@ -77,5 +124,25 @@ class MainActivity : ComponentActivity() {
             trustedShortcut && (action == ACTION_NEW_SHIPMENT || action == ACTION_IMPORT_REPORTS)
         }
         vm.handleLauncherShortcut(trustedAction, shortcutId)
+    }
+
+    private fun requestNotificationPermission(): Boolean {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return true
+        }
+        return false
+    }
+
+    private fun scheduleNotificationsIfAllowed() {
+        if (notificationsScheduledThisSession) return
+        if (FbsOrderNotificationService(applicationContext).notificationsAllowed()) {
+            notificationsScheduledThisSession = true
+            FbsOrderNotificationService.schedule(applicationContext)
+        }
     }
 }

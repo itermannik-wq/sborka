@@ -10,12 +10,29 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.ConnectException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 interface OzonOrderRepository {
     val lastWarning: String? get() = null
     suspend fun loadOrders(): List<OzonOrderItem>
+}
+
+internal fun ozonLoadErrorMessage(error: Throwable): String {
+    val causes = generateSequence(error) { it.cause }.toList()
+    return when {
+        causes.any { it is UnknownHostException || it is ConnectException } ||
+            causes.any { it.message?.contains("Network is unreachable", ignoreCase = true) == true } ->
+            "Нет доступа к интернету на устройстве. Проверьте Wi-Fi или мобильную сеть и повторите загрузку."
+        causes.any { it is SocketTimeoutException } ->
+            "Ozon API не ответил вовремя. Проверьте интернет и повторите загрузку."
+        else ->
+            error.message?.takeIf(String::isNotBlank)
+                ?: "Не удалось загрузить заказы. Попробуйте снова."
+    }
 }
 
 class StubOzonOrderRepository : OzonOrderRepository {
@@ -66,7 +83,7 @@ class PreAssemblyViewModel(
                                 orderId = grouped.joinToString(",") { it.orderId },
                                 offerId = offerId,
                                 sku = first.sku,
-                                name = first.name,
+                                name = PreAssemblyProductNames.nameFor(first),
                                 requiredQuantity = grouped.sumOf { preAssemblyRequiredQuantity(it) },
                                 imageUrl = grouped.firstNotNullOfOrNull { it.imageUrl }
                             )
@@ -84,8 +101,7 @@ class PreAssemblyViewModel(
                     }
                 }
                 .onFailure {
-                    val message = it.message?.takeIf(String::isNotBlank)
-                        ?: "Не удалось загрузить заказы. Попробуйте снова."
+                    val message = ozonLoadErrorMessage(it)
                     _state.update { state -> state.copy(isLoading = false, error = message) }
                 }
         }
@@ -233,7 +249,7 @@ class PreAssemblyViewModel(
                 else -> ""
             }
             """${index + 1}. Артикул: ${item.offerId}
-Товар: ${item.name}
+Товар: ${PreAssemblyProductNames.nameFor(item)}
 Причина перемещения: $reason
 Количество к перемещению: ${item.transferQuantity} шт.${if (item.comment.isBlank()) "" else "\nКомментарий: ${item.comment}"}
 """.trimIndent()
